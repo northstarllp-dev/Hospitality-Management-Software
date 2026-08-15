@@ -14,7 +14,7 @@ import {
   setDoc,
 } from "firebase/firestore";
 import { db } from "./config";
-import type { Purchase, Room, RoomStatus, User } from "@/data/types";
+import type { Booking, CatalogueItem, Purchase, Room, RoomStatus, User } from "@/data/types";
 import { canViewAllHouses, getAssignedHouseIds } from "@/lib/permissions";
 
 const IN_LIMIT = 30;
@@ -203,7 +203,7 @@ export function useAccessibleBookings(user: User | null) {
     if (canViewAllHouses(user)) return null;
     return getAssignedHouseIds(user);
   }, [user]);
-  return useScopedCollection("bookings", "houseId", houseIds);
+  return useScopedCollection<Booking>("bookings", "houseId", houseIds);
 }
 
 /** Catalogue items for accessible houses. */
@@ -213,7 +213,7 @@ export function useAccessibleCatalogue(user: User | null) {
     if (canViewAllHouses(user)) return null;
     return getAssignedHouseIds(user);
   }, [user]);
-  return useScopedCollection("catalogue", "houseId", houseIds);
+  return useScopedCollection<CatalogueItem>("catalogue", "houseId", houseIds);
 }
 
 /** Subscribe to a single document with real-time updates */

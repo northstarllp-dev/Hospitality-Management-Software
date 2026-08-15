@@ -79,7 +79,7 @@ export default function BookingNew({
   }, [initialRoomId, rooms, roomConfigs]);
 
   const nights = checkOut && checkIn ? Math.max(1, Math.round((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / (1000 * 60 * 60 * 24))) : 0;
-  const selectedHouse = allHouses.find(h => h.houseId === houseId);
+  const selectedHouse = accessibleHouses.find((h) => h.houseId === houseId);
 
   const toggleRoom = (r: typeof rooms[0]) => {
     setSelectedRoomIds(prev => {
