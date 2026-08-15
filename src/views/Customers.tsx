@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import type { User, Customer, Booking, House } from '../data/types';
-import { useCollection } from '../lib/firebase/hooks';
+import { useAccessibleBookings, useAccessibleHouses, useCollection } from '../lib/firebase/hooks';
 import { db } from '../lib/firebase/config';
 import { doc, setDoc, updateDoc } from 'firebase/firestore';
 import type { Page } from '../components/Layout';
 import { createId } from '@/lib/ids';
 import { useToast } from '@/components/ToastProvider';
+import { canViewAllHouses, isSuperAdmin } from '@/lib/permissions';
 
 interface Props {
   currentUser: User;
@@ -17,21 +18,28 @@ const emptyGuest = { name: '', phone: '', email: '', idProof: '' };
 export default function Customers({ currentUser, onNavigate }: Props) {
   const toast = useToast();
   const { data: CUSTOMERS, loading } = useCollection<Customer>('customers');
-  const { data: BOOKINGS } = useCollection<Booking>('bookings');
-  const { data: HOUSES } = useCollection<House>('houses');
+  const { data: BOOKINGS } = useAccessibleBookings(currentUser);
+  const { data: HOUSES } = useAccessibleHouses<House>(currentUser);
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyGuest);
   const [saving, setSaving] = useState(false);
 
+  // Only guests with stays at accessible properties (superadmin sees all)
+  const scopedCustomers = useMemo(() => {
+    if (isSuperAdmin(currentUser) || canViewAllHouses(currentUser)) return CUSTOMERS;
+    const allowed = new Set(BOOKINGS.map(b => b.customerId));
+    return CUSTOMERS.filter(c => allowed.has(c.customerId));
+  }, [CUSTOMERS, BOOKINGS, currentUser]);
+
   const filtered = search
-    ? CUSTOMERS.filter(c =>
+    ? scopedCustomers.filter(c =>
         c.name.toLowerCase().includes(search.toLowerCase())
         || c.phone.includes(search)
         || c.email.toLowerCase().includes(search.toLowerCase())
       )
-    : CUSTOMERS;
+    : scopedCustomers;
 
   const openCreate = () => {
     setEditingId(null);
@@ -94,7 +102,7 @@ export default function Customers({ currentUser, onNavigate }: Props) {
       <div className="flex items-end justify-between mb-6 gap-3 flex-wrap">
         <div>
           <h1 className="text-3xl mb-1" style={{ fontFamily: 'DM Serif Display, serif', color: 'var(--foreground)' }}>Guests</h1>
-          <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>{CUSTOMERS.length} in directory</p>
+          <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>{filtered.length} guest{filtered.length !== 1 ? 's' : ''} at your properties</p>
         </div>
         <button
           type="button"

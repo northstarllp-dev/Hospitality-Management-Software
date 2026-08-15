@@ -1,10 +1,9 @@
 import { useMemo, useState } from 'react';
 import type { User, House, Booking, Customer, Purchase, Room } from '../data/types';
 import { formatCurrency, calcNights, calcBookingTotal } from '../data/types';
-import { useCollection, useAllRooms, useHouseRooms } from '../lib/firebase/hooks';
+import { useAccessibleBookings, useAccessibleHouses, useAccessibleRooms, useCollection, useHouseRooms } from '../lib/firebase/hooks';
 import { getRoomAvailability } from '../lib/availability';
 import type { Page } from '../components/Layout';
-import { filterHousesByAccess } from '@/lib/permissions';
 import DataError from '@/components/DataError';
 
 interface Props {
@@ -26,17 +25,15 @@ const AVAIL_STYLE = {
 };
 
 export default function Bookings({ currentUser, onNavigate }: Props) {
-  const { data: allHouses, loading: housesLoading, error: housesError } = useCollection<House>('houses');
-  const { data: allBookings, loading: bookingsLoading, error: bookingsError } = useCollection<Booking>('bookings');
+  const { data: accessibleHouses, loading: housesLoading, error: housesError } = useAccessibleHouses<House>(currentUser);
+  const { data: allBookings, loading: bookingsLoading, error: bookingsError } = useAccessibleBookings(currentUser);
   const { data: CUSTOMERS } = useCollection<Customer>('customers');
   const { data: allPurchases } = useCollection<Purchase>('purchases');
-  const { data: allRooms } = useAllRooms();
+  const { data: allRooms } = useAccessibleRooms(currentUser);
 
   const [view, setView] = useState<'list' | 'calendar'>('list');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
-
-  const accessibleHouses = filterHousesByAccess(currentUser, allHouses);
 
   const [calHouseId, setCalHouseId] = useState('');
   const effectiveCalHouse = calHouseId || accessibleHouses[0]?.houseId || '';
@@ -53,8 +50,7 @@ export default function Bookings({ currentUser, onNavigate }: Props) {
 
   const loading = housesLoading || bookingsLoading;
 
-  const accessibleHouseIds = accessibleHouses.map(h => h.houseId);
-  let bookings = allBookings.filter(b => accessibleHouseIds.includes(b.houseId));
+  let bookings = [...allBookings];
 
   if (statusFilter !== 'all') bookings = bookings.filter(b => b.status === statusFilter);
   if (search) {
@@ -213,7 +209,7 @@ export default function Bookings({ currentUser, onNavigate }: Props) {
             )}
 
             {bookings.map((booking, i) => {
-              const house = allHouses.find(h => h.houseId === booking.houseId);
+              const house = accessibleHouses.find(h => h.houseId === booking.houseId);
               const room = allRooms.find(r => r.roomId === booking.roomId && r.houseId === booking.houseId);
               const customer = CUSTOMERS.find(c => c.customerId === booking.customerId);
               const nights = calcNights(booking.checkIn, booking.checkOut);

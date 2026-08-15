@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import CustomerDetail from "@/views/CustomerDetail";
 import { useEffect, use } from "react";
 import { appNavigate } from "@/lib/navigate";
+import { canViewAllGuests } from "@/lib/permissions";
 
 export default function Page({ params: paramsPromise }: { params: Promise<{ customerId: string }> }) {
   const { currentUser } = useAuth();
@@ -11,10 +12,16 @@ export default function Page({ params: paramsPromise }: { params: Promise<{ cust
   const params = use(paramsPromise);
 
   useEffect(() => {
-    if (!currentUser) router.push("/login");
+    if (!currentUser) {
+      router.push("/login");
+      return;
+    }
+    if (!canViewAllGuests(currentUser)) {
+      router.replace("/");
+    }
   }, [currentUser, router]);
 
-  if (!currentUser) return null;
+  if (!currentUser || !canViewAllGuests(currentUser)) return null;
 
   return (
     <CustomerDetail

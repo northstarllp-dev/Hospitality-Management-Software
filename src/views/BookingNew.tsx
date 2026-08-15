@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react';
 import type { User, House, Customer, Booking } from '../data/types';
 import { formatCurrency, calcExtraBedsNeeded, calcExtraBedTotal } from '../data/types';
-import { useCollection, useHouseRooms } from '../lib/firebase/hooks';
+import { useCollection, useAccessibleBookings, useAccessibleHouses, useHouseRooms } from '../lib/firebase/hooks';
 import { getConflictingBooking } from '../lib/availability';
 import { db } from '../lib/firebase/config';
 import { doc, setDoc } from 'firebase/firestore';
 import type { Page } from '../components/Layout';
-import { filterHousesByAccess } from '@/lib/permissions';
 import { createBookingAtomic } from '@/lib/bookingService';
 import { createId } from '@/lib/ids';
 import { useToast } from '@/components/ToastProvider';
@@ -36,11 +35,9 @@ export default function BookingNew({
   onNavigate,
 }: Props) {
   const toast = useToast();
-  const { data: allHouses, loading: housesLoading } = useCollection<House>('houses');
+  const { data: accessibleHouses, loading: housesLoading } = useAccessibleHouses<House>(currentUser);
   const { data: CUSTOMERS, loading: customersLoading } = useCollection<Customer>('customers');
-  const { data: BOOKINGS } = useCollection<Booking>('bookings');
-
-  const accessibleHouses = filterHousesByAccess(currentUser, allHouses);
+  const { data: BOOKINGS } = useAccessibleBookings(currentUser);
 
   const [houseId, setHouseId] = useState(initialHouseId ?? '');
   const [selectedRoomIds, setSelectedRoomIds] = useState<string[]>(initialRoomId ? [initialRoomId] : []);

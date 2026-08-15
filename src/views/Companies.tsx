@@ -6,7 +6,7 @@ import { useCollection } from "@/lib/firebase/hooks";
 import { db } from "@/lib/firebase/config";
 import { doc, setDoc, deleteDoc } from "firebase/firestore";
 import { createId } from "@/lib/ids";
-import { canManageCompanies } from "@/lib/permissions";
+import { canManageCompanies, normalizeRole } from "@/lib/permissions";
 import { useToast } from "@/components/ToastProvider";
 import type { Page } from "@/components/Layout";
 
@@ -19,6 +19,7 @@ export default function Companies({ currentUser, onNavigate }: Props) {
   const toast = useToast();
   const { data: companies, loading } = useCollection<Company>("companies");
   const { data: houses } = useCollection<House>("houses");
+  const { data: users } = useCollection<User>("users");
   const [showAdd, setShowAdd] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
@@ -68,8 +69,13 @@ export default function Companies({ currentUser, onNavigate }: Props) {
 
   const handleDelete = async (company: Company) => {
     const linked = houses.filter((h) => h.companyId === company.companyId).length;
-    if (linked > 0) {
-      toast.error(`Unlink ${linked} propert${linked === 1 ? "y" : "ies"} first.`);
+    const linkedUsers = users.filter(
+      (u) => u.companyId === company.companyId && normalizeRole(u.role) !== "superadmin"
+    ).length;
+    if (linked > 0 || linkedUsers > 0) {
+      toast.error(
+        `Move or unlink ${linked} propert${linked === 1 ? "y" : "ies"} and ${linkedUsers} login${linkedUsers === 1 ? "" : "s"} first.`
+      );
       return;
     }
     if (!window.confirm(`Delete company “${company.name}”?`)) return;
@@ -188,6 +194,9 @@ export default function Companies({ currentUser, onNavigate }: Props) {
         )}
         {companies.map((company, i) => {
           const propCount = houses.filter((h) => h.companyId === company.companyId).length;
+          const loginCount = users.filter(
+            (u) => u.companyId === company.companyId && normalizeRole(u.role) !== "superadmin"
+          ).length;
           return (
             <div
               key={company.companyId}
@@ -199,20 +208,30 @@ export default function Companies({ currentUser, onNavigate }: Props) {
                   {company.name}
                 </div>
                 <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>
-                  {propCount} propert{propCount === 1 ? "y" : "ies"}
+                  {propCount} propert{propCount === 1 ? "y" : "ies"} · {loginCount} login
+                  {loginCount === 1 ? "" : "s"}
                   {company.contactName ? ` · ${company.contactName}` : ""}
-                  {company.contactPhone ? ` · ${company.contactPhone}` : ""}
                 </div>
               </div>
               {onNavigate && (
-                <button
-                  type="button"
-                  onClick={() => onNavigate("houses")}
-                  className="text-xs px-3 py-1.5 rounded font-medium"
-                  style={{ background: "var(--secondary)", color: "var(--secondary-foreground)" }}
-                >
-                  Properties
-                </button>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => onNavigate("houses", { companyId: company.companyId })}
+                    className="text-xs px-3 py-1.5 rounded font-medium"
+                    style={{ background: "var(--secondary)", color: "var(--secondary-foreground)" }}
+                  >
+                    Properties
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onNavigate("staff", { companyId: company.companyId })}
+                    className="text-xs px-3 py-1.5 rounded font-medium"
+                    style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}
+                  >
+                    Logins
+                  </button>
+                </div>
               )}
               <button
                 type="button"

@@ -19,11 +19,11 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'dashboard', href: '/', label: 'Dashboard', icon: '◈', roles: ['superadmin', 'admin', 'staff'] },
   { id: 'companies', href: '/companies', label: 'Companies', icon: '▣', roles: ['superadmin'] },
   { id: 'houses', href: '/houses', label: 'Properties', icon: '⌂', roles: ['superadmin', 'admin', 'staff'] },
-  { id: 'bookings', href: '/bookings', label: 'Bookings', icon: '◷', roles: ['admin'] },
-  { id: 'purchases', href: '/purchases', label: 'Guest Purchases', icon: '＋', roles: ['admin'] },
+  { id: 'bookings', href: '/bookings', label: 'Bookings', icon: '◷', roles: ['admin', 'staff'] },
+  { id: 'purchases', href: '/purchases', label: 'Guest Purchases', icon: '＋', roles: ['admin', 'staff'] },
   { id: 'customers', href: '/customers', label: 'Guests', icon: '◉', roles: ['admin'] },
-  { id: 'catalogue', href: '/catalogue', label: 'Catalogue', icon: '≡', roles: ['admin'] },
-  { id: 'staff', href: '/staff', label: 'Team', icon: '◎', roles: ['superadmin'] },
+  { id: 'catalogue', href: '/catalogue', label: 'Catalogue', icon: '≡', roles: ['admin', 'staff'] },
+  { id: 'staff', href: '/staff', label: 'Team', icon: '◎', roles: ['superadmin', 'admin'] },
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -40,12 +40,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const visibleNav = NAV_ITEMS.filter(n => {
     if (isSuperAdmin(currentUser)) {
-      return n.roles.includes('superadmin') || n.id === 'dashboard' || n.id === 'houses' || n.id === 'companies' || n.id === 'staff';
+      return n.id === 'dashboard' || n.id === 'houses' || n.id === 'companies' || n.id === 'staff';
     }
     if (isStaff(currentUser)) {
-      return n.id === 'dashboard' || n.id === 'houses';
+      return ['dashboard', 'houses', 'bookings', 'purchases', 'catalogue'].includes(n.id);
     }
-    return canAccessNav(currentUser, n.roles);
+    // Property owner — includes Team to assign staff on their properties
+    return canAccessNav(currentUser, n.roles) || n.id === 'staff';
   });
 
   const role = normalizeRole(currentUser.role);

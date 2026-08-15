@@ -28,11 +28,36 @@ service cloud.firestore {
       return hasStaffAccess() && signedInUser().role == 'superadmin';
     }
 
+    function isPropertyOwner() {
+      return hasStaffAccess() && signedInUser().role == 'admin';
+    }
+
+    function assignedHouseList() {
+      let u = signedInUser();
+      return ('assignedHouses' in u && u.assignedHouses is list)
+        ? u.assignedHouses
+        : [];
+    }
+
     function canAccessHouse(houseId) {
-      return isAdmin()
+      return isSuperAdmin()
+        || (isPropertyOwner()
+          && houseId in assignedHouseList())
         || (hasStaffAccess()
-          && signedInUser().assignedHouse != null
-          && signedInUser().assignedHouse == houseId);
+          && signedInUser().role == 'staff'
+          && (
+            (signedInUser().assignedHouse != null && signedInUser().assignedHouse == houseId)
+            || houseId in assignedHouseList()
+          ));
+    }
+
+    function bookingHouse(bookingId) {
+      return get(/databases/$(database)/documents/bookings/$(bookingId)).data.houseId;
+    }
+
+    function canAccessBooking(bookingId) {
+      return exists(/databases/$(database)/documents/bookings/$(bookingId))
+        && canAccessHouse(bookingHouse(bookingId));
     }
 
     function isValidEmail(email) {
@@ -45,7 +70,7 @@ service cloud.firestore {
     }
 
     function isValidUser(data) {
-      return data.keys().hasOnly(['uid', 'name', 'email', 'role', 'assignedHouse'])
+      return data.keys().hasOnly(['uid', 'name', 'email', 'role', 'assignedHouse', 'assignedHouses', 'companyId'])
         && data.uid is string
         && data.uid.size() > 0
         && data.name is string
@@ -55,7 +80,19 @@ service cloud.firestore {
         && data.role in ['superadmin', 'admin', 'staff']
         && (!('assignedHouse' in data)
           || data.assignedHouse == null
-          || data.assignedHouse is string);
+          || data.assignedHouse is string)
+        && (!('assignedHouses' in data)
+          || (data.assignedHouses is list && data.assignedHouses.size() <= 50))
+        && (!('companyId' in data)
+          || data.companyId == null
+          || data.companyId is string);
+    }
+
+    function staffHouseInOwnerScope() {
+      let staffHouse = request.resource.data.assignedHouse;
+      let list = request.resource.data.assignedHouses;
+      return (staffHouse is string && staffHouse in assignedHouseList())
+        || (list is list && list.size() == 1 && list[0] in assignedHouseList());
     }
 
     function isValidHouse(data) {
@@ -162,7 +199,8 @@ service cloud.firestore {
         && data.quantity > 0
         && data.price is number
         && data.addedBy is string
-        && data.timestamp is string;
+        && data.timestamp is string
+        && (!('houseId' in data) || data.houseId is string);
     }
 
     function isValidBill(data) {
@@ -174,6 +212,7 @@ service cloud.firestore {
           'totalWithTax', 'createdAt'
         ])
         && data.bookingId is string
+        && data.houseId is string
         && data.purchaseLines is list
         && data.totalWithTax is number
         && (!('guestCount' in data) || data.guestCount is number)
@@ -190,62 +229,116 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if hasStaffAccess();
-      allow create, update: if isSuperAdmin()
-        && isValidUser(request.resource.data)
+      // Own profile always; superadmin all; owners may read staff under their houses
+      allow get: if hasStaffAccess() && (
+        isSuperAdmin()
+        || request.auth.uid == userId
+        || resource.data.role == 'staff'
+        || isPropertyOwner()
+      );
+      allow list: if isSuperAdmin() || isPropertyOwner();
+      allow create: if isValidUser(request.resource.data)
         && request.resource.data.uid == userId
         && (
-          request.resource.data.role in ['admin', 'staff']
-          || (userId == request.auth.uid && request.resource.data.role == 'superadmin')
+          (
+            isSuperAdmin()
+            && request.resource.data.role in ['admin', 'staff']
+          )
+          || (
+            isPropertyOwner()
+            && request.resource.data.role == 'staff'
+            && staffHouseInOwnerScope()
+          )
         );
-      allow delete: if isSuperAdmin()
-        && resource.data.role != 'superadmin'
-        && userId != request.auth.uid;
+      allow update: if isValidUser(request.resource.data)
+        && request.resource.data.uid == userId
+        && (
+          (
+            isSuperAdmin()
+            && (
+              request.resource.data.role in ['admin', 'staff']
+              || (userId == request.auth.uid && request.resource.data.role == 'superadmin')
+            )
+          )
+          || (
+            isPropertyOwner()
+            && resource.data.role == 'staff'
+            && request.resource.data.role == 'staff'
+            && staffHouseInOwnerScope()
+          )
+        );
+      allow delete: if (
+          isSuperAdmin()
+          && resource.data.role != 'superadmin'
+          && userId != request.auth.uid
+        )
+        || (
+          isPropertyOwner()
+          && resource.data.role == 'staff'
+          && (
+            (resource.data.assignedHouse is string && resource.data.assignedHouse in assignedHouseList())
+            || (
+              'assignedHouses' in resource.data
+              && resource.data.assignedHouses is list
+              && resource.data.assignedHouses.size() > 0
+              && resource.data.assignedHouses[0] in assignedHouseList()
+            )
+          )
+        );
     }
 
     match /houses/{houseId} {
-      allow read: if hasStaffAccess();
-      allow create, update: if isAdmin() && isValidHouse(request.resource.data);
+      allow read: if canAccessHouse(houseId);
+      allow create: if isSuperAdmin() && isValidHouse(request.resource.data);
+      allow update: if isValidHouse(request.resource.data)
+        && (isSuperAdmin() || (isPropertyOwner() && canAccessHouse(houseId)));
       allow delete: if isSuperAdmin();
 
       match /rooms/{roomId} {
-        allow read: if hasStaffAccess();
-        allow create: if isAdmin() && isValidRoom(request.resource.data)
+        allow read: if canAccessHouse(houseId);
+        allow create: if (isSuperAdmin() || (isPropertyOwner() && canAccessHouse(houseId)))
+          && isValidRoom(request.resource.data)
           && request.resource.data.houseId == houseId
           && request.resource.data.roomId == roomId;
         allow update: if isValidRoom(request.resource.data)
           && request.resource.data.houseId == houseId
           && request.resource.data.roomId == roomId
           && (
-            isAdmin()
+            isSuperAdmin()
+            || (isPropertyOwner() && canAccessHouse(houseId))
             || (
               canAccessHouse(houseId)
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentStatus'])
             )
           );
-        allow delete: if isAdmin();
+        allow delete: if isSuperAdmin() || (isPropertyOwner() && canAccessHouse(houseId));
       }
     }
 
     match /{path=**}/rooms/{roomId} {
-      allow read: if hasStaffAccess();
+      allow read: if canAccessHouse(resource.data.houseId);
     }
 
+    // Guests: get by id for staff; full list only for admins (UI must still filter by stays).
+    // True tenant isolation for guests needs companyId on customer docs (next phase).
     match /customers/{customerId} {
-      allow read: if hasStaffAccess();
-      allow create, update: if hasStaffAccess() && isValidCustomer(request.resource.data)
+      allow get: if hasStaffAccess();
+      allow list: if isAdmin();
+      allow create, update: if isAdmin() && isValidCustomer(request.resource.data)
         && request.resource.data.customerId == customerId;
-      allow delete: if isAdmin();
+      allow delete: if isSuperAdmin() || isPropertyOwner();
     }
 
     match /catalogue/{itemId} {
-      allow read: if hasStaffAccess();
-      allow create, update: if hasStaffAccess() && isValidCatalogueItem(request.resource.data);
-      allow delete: if isAdmin();
+      allow read: if canAccessHouse(resource.data.houseId);
+      allow create, update: if canAccessHouse(request.resource.data.houseId)
+        && isValidCatalogueItem(request.resource.data);
+      allow delete: if canAccessHouse(resource.data.houseId)
+        && (isSuperAdmin() || isPropertyOwner());
     }
 
     match /bookings/{bookingId} {
-      allow read: if hasStaffAccess();
+      allow read: if canAccessHouse(resource.data.houseId);
       allow create: if hasStaffAccess()
         && isValidBooking(request.resource.data)
         && request.resource.data.bookingId == bookingId
@@ -254,26 +347,33 @@ service cloud.firestore {
         && isValidBooking(request.resource.data)
         && canAccessHouse(resource.data.houseId)
         && canAccessHouse(request.resource.data.houseId);
-      allow delete: if isAdmin();
+      allow delete: if canAccessHouse(resource.data.houseId)
+        && (isSuperAdmin() || isPropertyOwner());
     }
 
     match /purchases/{purchaseId} {
-      allow read: if hasStaffAccess();
-      allow create, update: if hasStaffAccess() && isValidPurchase(request.resource.data);
-      allow delete: if hasStaffAccess();
+      allow read: if canAccessBooking(resource.data.bookingId)
+        || (('houseId' in resource.data) && canAccessHouse(resource.data.houseId));
+      allow create, update: if isValidPurchase(request.resource.data)
+        && canAccessBooking(request.resource.data.bookingId);
+      allow delete: if canAccessBooking(resource.data.bookingId);
     }
 
     match /companies/{companyId} {
-      allow read: if hasStaffAccess();
+      allow read: if isSuperAdmin()
+        || (hasStaffAccess()
+          && 'companyId' in signedInUser()
+          && signedInUser().companyId == companyId);
       allow create, update: if isSuperAdmin() && isValidCompany(request.resource.data)
         && request.resource.data.companyId == companyId;
       allow delete: if isSuperAdmin();
     }
 
     match /bills/{bookingId} {
-      allow read: if hasStaffAccess();
-      allow create, update: if hasStaffAccess() && isValidBill(request.resource.data)
-        && request.resource.data.bookingId == bookingId;
+      allow read: if canAccessHouse(resource.data.houseId);
+      allow create, update: if isValidBill(request.resource.data)
+        && request.resource.data.bookingId == bookingId
+        && canAccessHouse(request.resource.data.houseId);
       allow delete: if isSuperAdmin();
     }
 
@@ -282,7 +382,8 @@ service cloud.firestore {
       allow list: if false;
       allow create, update: if hasStaffAccess()
         && request.resource.data.token == token
-        && request.resource.data.bookingId is string;
+        && request.resource.data.bookingId is string
+        && canAccessBooking(request.resource.data.bookingId);
       allow delete: if isSuperAdmin();
     }
   }

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import GuestPurchases from "@/views/GuestPurchases";
 import { appNavigate } from "@/lib/navigate";
-import { canAddGuestPurchases, isSuperAdmin } from "@/lib/permissions";
+import { canAddGuestPurchases } from "@/lib/permissions";
 
 export default function PurchasesPage() {
   const { currentUser } = useAuth();
@@ -16,12 +16,12 @@ export default function PurchasesPage() {
       router.push("/login");
       return;
     }
-    if (isSuperAdmin(currentUser) || !canAddGuestPurchases(currentUser)) {
+    if (!canAddGuestPurchases(currentUser)) {
       router.replace("/");
     }
   }, [currentUser, router]);
 
-  if (!currentUser || isSuperAdmin(currentUser) || !canAddGuestPurchases(currentUser)) {
+  if (!currentUser || !canAddGuestPurchases(currentUser)) {
     return null;
   }
 

@@ -143,6 +143,7 @@ export default function BookingDetail({ currentUser, bookingId, openAddPurchase,
       await setDoc(doc(db, 'purchases', purchaseId), {
         purchaseId,
         bookingId,
+        houseId: booking.houseId,
         roomId: booking.roomId,
         itemId: addItem,
         quantity: addQty,

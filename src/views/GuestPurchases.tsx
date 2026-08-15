@@ -2,9 +2,13 @@
 
 import { useMemo } from "react";
 import type { User, House, Booking, Customer, Room } from "@/data/types";
-import { useCollection, useAllRooms } from "@/lib/firebase/hooks";
+import {
+  useAccessibleBookings,
+  useAccessibleHouses,
+  useAccessibleRooms,
+  useCollection,
+} from "@/lib/firebase/hooks";
 import type { Page } from "@/components/Layout";
-import { filterHousesByAccess } from "@/lib/permissions";
 
 interface Props {
   currentUser: User;
@@ -13,22 +17,17 @@ interface Props {
 
 /** Pick an active stay to add a guest purchase (not catalogue management). */
 export default function GuestPurchases({ currentUser, onNavigate }: Props) {
-  const { data: allHouses, loading: housesLoading } = useCollection<House>("houses");
-  const { data: BOOKINGS, loading: bookingsLoading } = useCollection<Booking>("bookings");
+  const { data: houses, loading: housesLoading } = useAccessibleHouses<House>(currentUser);
+  const { data: BOOKINGS, loading: bookingsLoading } = useAccessibleBookings(currentUser);
   const { data: CUSTOMERS } = useCollection<Customer>("customers");
-  const { data: allRooms } = useAllRooms();
-
-  const houses = filterHousesByAccess(currentUser, allHouses);
-  const houseIds = useMemo(() => new Set(houses.map((h) => h.houseId)), [houses]);
+  const { data: allRooms } = useAccessibleRooms(currentUser);
 
   const activeStays = useMemo(
     () =>
-      BOOKINGS.filter(
-        (b) =>
-          houseIds.has(b.houseId) &&
-          (b.status === "checked-in" || b.status === "confirmed")
-      ).sort((a, b) => a.checkIn.localeCompare(b.checkIn)),
-    [BOOKINGS, houseIds]
+      BOOKINGS.filter((b) => b.status === "checked-in" || b.status === "confirmed").sort((a, b) =>
+        a.checkIn.localeCompare(b.checkIn)
+      ),
+    [BOOKINGS]
   );
 
   if (housesLoading || bookingsLoading) {
@@ -49,7 +48,7 @@ export default function GuestPurchases({ currentUser, onNavigate }: Props) {
           Add Guest Purchase
         </h1>
         <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>
-          Choose a stay to add food, drinks, or amenities the guest bought. This is not catalogue setup.
+          Choose a stay at your property to bill guest items. Stays from other properties are not shown.
         </p>
       </div>
 
@@ -59,16 +58,7 @@ export default function GuestPurchases({ currentUser, onNavigate }: Props) {
       >
         {activeStays.length === 0 && (
           <div className="px-5 py-12 text-center text-sm" style={{ color: "var(--muted-foreground)" }}>
-            No active stays right now.{" "}
-            <button
-              type="button"
-              className="underline"
-              style={{ color: "var(--accent)" }}
-              onClick={() => onNavigate("booking-new")}
-            >
-              Create a booking
-            </button>{" "}
-            first, then add purchases after check-in.
+            No active stays on your assigned properties.
           </div>
         )}
 

@@ -47,11 +47,27 @@ export default function PortalActions() {
       <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
         <button
           type="button"
-          onClick={() => router.push("/houses")}
+          onClick={() => router.push("/purchases")}
+          className="px-3 py-1.5 rounded-md text-xs sm:text-sm font-semibold"
+          style={{ background: "var(--accent)", color: "white" }}
+        >
+          Add Guest Purchase
+        </button>
+        <button
+          type="button"
+          onClick={() => router.push("/catalogue")}
           className="px-3 py-1.5 rounded-md text-xs sm:text-sm font-semibold"
           style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}
         >
-          Rooms &amp; Maintenance
+          Catalogue
+        </button>
+        <button
+          type="button"
+          onClick={() => router.push("/houses")}
+          className="px-3 py-1.5 rounded-md text-xs sm:text-sm font-semibold"
+          style={{ background: "var(--secondary)", color: "var(--secondary-foreground)" }}
+        >
+          My Property
         </button>
       </div>
     );

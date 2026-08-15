@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
 import type { CatalogueItem, House, User } from '../data/types';
 import { formatCurrency } from '../data/types';
-import { useCollection } from '../lib/firebase/hooks';
+import { useAccessibleCatalogue, useAccessibleHouses } from '../lib/firebase/hooks';
 import { db } from '../lib/firebase/config';
 import { doc, setDoc, updateDoc, deleteDoc, writeBatch, getDocs, collection, query, where } from 'firebase/firestore';
-import { filterHousesByAccess } from '@/lib/permissions';
+import { canAccessHouse } from '@/lib/permissions';
 import { useToast } from '@/components/ToastProvider';
 import { createId } from '@/lib/ids';
 
@@ -16,9 +16,8 @@ interface Props {
 
 export default function Catalogue({ currentUser }: Props) {
   const toast = useToast();
-  const { data: allItems, loading } = useCollection<CatalogueItem>('catalogue');
-  const { data: allHouses } = useCollection<House>('houses');
-  const houses = filterHousesByAccess(currentUser, allHouses);
+  const { data: allItems, loading } = useAccessibleCatalogue(currentUser);
+  const { data: houses } = useAccessibleHouses<House>(currentUser);
 
   const [houseId, setHouseId] = useState('');
   const effectiveHouseId = houseId || houses[0]?.houseId || '';

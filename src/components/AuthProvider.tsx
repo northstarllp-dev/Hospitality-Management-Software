@@ -18,10 +18,18 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 function toAppUser(data: Record<string, unknown>, uid: string): User {
   const { password: _password, ...safe } = data as unknown as User & { password?: string };
+  const assignedHouses = Array.isArray(safe.assignedHouses)
+    ? safe.assignedHouses.filter((id): id is string => typeof id === "string" && !!id)
+    : safe.assignedHouse
+      ? [safe.assignedHouse]
+      : [];
   return {
     ...safe,
     uid,
     role: normalizeRole(safe.role),
+    assignedHouses,
+    assignedHouse: safe.assignedHouse ?? (assignedHouses[0] ?? null),
+    companyId: safe.companyId ?? null,
   };
 }
 

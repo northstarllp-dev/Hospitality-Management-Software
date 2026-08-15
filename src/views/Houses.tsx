@@ -1,43 +1,65 @@
-import { useState } from 'react';
+"use client";
+
+import { useMemo, useState } from 'react';
 import type { User, House, Room, Company } from '../data/types';
-import { useCollection, useAllRooms } from '../lib/firebase/hooks';
+import { useCollection, useAccessibleHouses, useAccessibleRooms } from '../lib/firebase/hooks';
 import { db } from '../lib/firebase/config';
-import { doc, setDoc, writeBatch } from 'firebase/firestore';
+import { doc, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
 import type { Page } from '../components/Layout';
-import { canManageProperties, filterHousesByAccess } from '@/lib/permissions';
+import { canManageProperties, isSuperAdmin } from '@/lib/permissions';
 import { catalogueForHouse } from '@/data/mock';
 import { useToast } from '@/components/ToastProvider';
 import { createId } from '@/lib/ids';
+import CompanyFilter from '@/components/CompanyFilter';
 
 interface Props {
   currentUser: User;
   onNavigate: (page: Page, params?: Record<string, string>) => void;
+  initialCompanyFilter?: string;
 }
 
 const DEFAULT_COVER =
   'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?auto=format&fit=crop&q=80&w=800';
 
-export default function Houses({ currentUser, onNavigate }: Props) {
+export default function Houses({ currentUser, onNavigate, initialCompanyFilter = '' }: Props) {
   const toast = useToast();
-  const { data: allHouses, loading } = useCollection<House>('houses');
-  const { data: allRooms } = useAllRooms();
+  const { data: accessibleHouses, loading } = useAccessibleHouses<House>(currentUser);
+  const { data: allRooms } = useAccessibleRooms(currentUser);
+  const { data: companies } = useCollection<Company>('companies');
+  const isSuper = isSuperAdmin(currentUser);
+
   const [showAdd, setShowAdd] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [companyFilter, setCompanyFilter] = useState(initialCompanyFilter);
   const [newHouse, setNewHouse] = useState({
     name: '',
     address: '',
     description: '',
     coverImage: '',
     roomCount: 4,
-    companyId: '',
+    companyId: initialCompanyFilter && initialCompanyFilter !== '__none__' ? initialCompanyFilter : '',
   });
 
-  const { data: companies } = useCollection<Company>('companies');
-  const accessibleHouses = filterHousesByAccess(currentUser, allHouses);
+  const accessibleHousesBase = accessibleHouses;
+
+  const filteredHouses = useMemo(() => {
+    if (!isSuper || !companyFilter) return accessibleHousesBase;
+    if (companyFilter === '__none__') {
+      return accessibleHousesBase.filter(h => !h.companyId);
+    }
+    return accessibleHousesBase.filter(h => h.companyId === companyFilter);
+  }, [accessibleHousesBase, companyFilter, isSuper]);
+
+  const companyName = (companyId?: string | null) =>
+    companies.find(c => c.companyId === companyId)?.name;
 
   const handleAddHouse = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newHouse.name || !newHouse.address) return;
+    if (isSuper && !newHouse.companyId) {
+      toast.error('Assign this property to a company.');
+      return;
+    }
     setSaving(true);
     try {
       const houseId = createId('h');
@@ -76,7 +98,6 @@ export default function Houses({ currentUser, onNavigate }: Props) {
         await batch.commit();
       }
 
-      // Seed a default per-property catalogue (can be edited or duplicated later)
       const catBatch = writeBatch(db);
       for (const item of catalogueForHouse(houseId)) {
         catBatch.set(doc(db, 'catalogue', item.itemId), item);
@@ -84,7 +105,14 @@ export default function Houses({ currentUser, onNavigate }: Props) {
       await catBatch.commit();
 
       setShowAdd(false);
-      setNewHouse({ name: '', address: '', description: '', coverImage: '', roomCount: 4, companyId: '' });
+      setNewHouse({
+        name: '',
+        address: '',
+        description: '',
+        coverImage: '',
+        roomCount: 4,
+        companyId: companyFilter && companyFilter !== '__none__' ? companyFilter : '',
+      });
       toast.success('Property created.');
       onNavigate('house-detail', { houseId });
     } catch (err) {
@@ -95,14 +123,30 @@ export default function Houses({ currentUser, onNavigate }: Props) {
     }
   };
 
+  const assignCompany = async (house: House, companyId: string) => {
+    if (!isSuper) return;
+    try {
+      await updateDoc(doc(db, 'houses', house.houseId), { companyId: companyId || null });
+      toast.success(companyId ? 'Company updated.' : 'Property unassigned from company.');
+    } catch (err) {
+      console.error(err);
+      toast.error('Could not update company.');
+    }
+  };
+
   if (loading) return <div className="p-8 text-center" style={{ color: 'var(--muted-foreground)' }}>Loading properties…</div>;
 
   return (
     <div className="p-6 lg:p-8 max-w-5xl mx-auto">
-      <div className="flex items-end justify-between mb-8 gap-3 flex-wrap">
+      <div className="flex items-end justify-between mb-6 gap-3 flex-wrap">
         <div>
           <h1 className="text-3xl mb-1" style={{ fontFamily: 'DM Serif Display, serif', color: 'var(--foreground)' }}>Properties</h1>
-          <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>{accessibleHouses.length} {accessibleHouses.length === 1 ? 'property' : 'properties'}</p>
+          <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
+            {filteredHouses.length} {filteredHouses.length === 1 ? 'property' : 'properties'}
+            {isSuper && companyFilter && companyFilter !== '__none__' && companyName(companyFilter)
+              ? ` · ${companyName(companyFilter)}`
+              : ''}
+          </p>
         </div>
         {canManageProperties(currentUser) && (
           <button
@@ -114,6 +158,21 @@ export default function Houses({ currentUser, onNavigate }: Props) {
           </button>
         )}
       </div>
+
+      {isSuper && (
+        <div className="mb-6">
+          <CompanyFilter
+            companies={companies}
+            value={companyFilter}
+            onChange={(v) => {
+              setCompanyFilter(v);
+              if (v && v !== '__none__') {
+                setNewHouse(prev => ({ ...prev, companyId: v }));
+              }
+            }}
+          />
+        </div>
+      )}
 
       {showAdd && canManageProperties(currentUser) && (
         <form onSubmit={handleAddHouse} className="mb-8 p-6 rounded-xl space-y-4" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
@@ -143,32 +202,27 @@ export default function Houses({ currentUser, onNavigate }: Props) {
                 className="w-full px-3 py-2 rounded text-sm outline-none"
                 style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
               />
-              <p className="text-xs mt-1" style={{ color: 'var(--muted-foreground)' }}>Creates vacant rooms you can configure later.</p>
             </div>
             <div>
-              <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--muted-foreground)' }}>Company</label>
+              <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--muted-foreground)' }}>Company *</label>
               <select
+                required
                 value={newHouse.companyId}
                 onChange={e => setNewHouse({ ...newHouse, companyId: e.target.value })}
                 className="w-full px-3 py-2 rounded text-sm outline-none"
                 style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
               >
-                <option value="">Unassigned</option>
+                <option value="">Select company…</option>
                 {companies.map(c => (
                   <option key={c.companyId} value={c.companyId}>{c.name}</option>
                 ))}
               </select>
             </div>
-            <div>
+            <div className="md:col-span-2">
               <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--muted-foreground)' }}>Cover photo URL</label>
               <input type="url" value={newHouse.coverImage} onChange={e => setNewHouse({ ...newHouse, coverImage: e.target.value })} className="w-full px-3 py-2 rounded text-sm outline-none" style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }} placeholder="https://..." />
             </div>
           </div>
-          {newHouse.coverImage && (
-            <div className="h-32 rounded-lg overflow-hidden" style={{ border: '1px solid var(--border)' }}>
-              <img src={newHouse.coverImage} alt="Cover preview" className="w-full h-full object-cover" />
-            </div>
-          )}
           <div className="flex justify-end pt-2">
             <button type="submit" disabled={saving} className="px-5 py-2 rounded text-sm font-semibold disabled:opacity-50" style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}>
               {saving ? 'Creating...' : 'Create Property'}
@@ -177,14 +231,21 @@ export default function Houses({ currentUser, onNavigate }: Props) {
         </form>
       )}
 
+      {filteredHouses.length === 0 && (
+        <div className="py-12 text-center text-sm" style={{ color: 'var(--muted-foreground)' }}>
+          No properties for this filter.
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {accessibleHouses.map(house => {
+        {filteredHouses.map(house => {
           const rooms = allRooms.filter((r: Room) => r.houseId === house.houseId);
           const vacant = rooms.filter(r => r.currentStatus === 'vacant').length;
           const occupied = rooms.filter(r => r.currentStatus === 'occupied').length;
           const maintenance = rooms.filter(r => r.currentStatus === 'maintenance').length;
           const total = rooms.length || house.roomCount || 0;
           const pct = total ? Math.round((occupied / total) * 100) : 0;
+          const co = companyName(house.companyId);
 
           return (
             <button
@@ -202,6 +263,24 @@ export default function Houses({ currentUser, onNavigate }: Props) {
                 </div>
               </div>
               <div className="p-4">
+                {isSuper && (
+                  <div className="mb-3" onClick={e => e.stopPropagation()}>
+                    <select
+                      value={house.companyId || ''}
+                      onChange={e => assignCompany(house, e.target.value)}
+                      className="w-full px-2 py-1.5 rounded text-xs outline-none"
+                      style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
+                    >
+                      <option value="">Unassigned company</option>
+                      {companies.map(c => (
+                        <option key={c.companyId} value={c.companyId}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {!isSuper && co && (
+                  <p className="text-xs mb-2 font-medium" style={{ color: 'var(--accent)' }}>{co}</p>
+                )}
                 <p className="text-sm mb-4 line-clamp-2" style={{ color: 'var(--muted-foreground)' }}>{house.description}</p>
                 <div className="flex items-center gap-3 mb-3">
                   <StatusPill label="Vacant" count={vacant} color="var(--status-vacant)" bg="var(--status-vacant-bg)" />

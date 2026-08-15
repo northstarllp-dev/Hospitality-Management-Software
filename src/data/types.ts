@@ -9,7 +9,12 @@ export interface User {
   email: string;
   password?: string;
   role: Role;
+  /** Legacy single property assignment (staff). Prefer assignedHouses. */
   assignedHouse?: string | null;
+  /** Properties this user may access (admins: multi; staff: usually one). */
+  assignedHouses?: string[];
+  /** Company this login belongs under (super-admin org structure). */
+  companyId?: string | null;
 }
 
 export interface Room {
@@ -69,6 +74,7 @@ export interface CatalogueItem {
 export interface Purchase {
   purchaseId: string;
   bookingId: string;
+  houseId?: string;
   roomId: string;
   itemId: string;
   quantity: number;

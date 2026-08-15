@@ -1,10 +1,15 @@
 import type { User, House, Booking, Customer, Purchase, CatalogueItem, Company, Room } from '../data/types';
 import { formatCurrency } from '../data/types';
-import { useCollection, useAllRooms } from '../lib/firebase/hooks';
+import {
+  useAccessibleBookings,
+  useAccessibleCatalogue,
+  useAccessibleHouses,
+  useAccessibleRooms,
+  useCollection,
+} from '../lib/firebase/hooks';
 import type { Page } from '../components/Layout';
 import PortalActions from '../components/PortalActions';
 import {
-  filterHousesByAccess,
   isSuperAdmin,
   isStaff,
   normalizeRole,
@@ -147,25 +152,23 @@ function SuperAdminDashboard({ currentUser, onNavigate }: Props) {
 
 /** Property Owner (admin) — stays, guests, revenue, guest purchases. */
 function OwnerDashboard({ currentUser, onNavigate }: Props) {
-  const { data: allHouses, loading: housesLoading, error: housesError } = useCollection<House>('houses');
-  const { data: BOOKINGS, loading: bookingsLoading, error: bookingsError } = useCollection<Booking>('bookings');
+  const { data: HOUSES, loading: housesLoading, error: housesError } = useAccessibleHouses<House>(currentUser);
+  const { data: BOOKINGS, loading: bookingsLoading, error: bookingsError } = useAccessibleBookings(currentUser);
   const { data: CUSTOMERS } = useCollection<Customer>('customers');
-  const { data: allRooms, loading: roomsLoading } = useAllRooms();
+  const { data: rooms, loading: roomsLoading } = useAccessibleRooms(currentUser);
   const { data: PURCHASES, loading: purchasesLoading } = useCollection<Purchase>('purchases');
-  const { data: CATALOGUE } = useCollection<CatalogueItem>('catalogue');
+  const { data: CATALOGUE } = useAccessibleCatalogue(currentUser);
 
   const loading = housesLoading || bookingsLoading || roomsLoading || purchasesLoading;
   const loadError = housesError || bookingsError;
 
-  const HOUSES = filterHousesByAccess(currentUser, allHouses);
   const houseIds = new Set(HOUSES.map(h => h.houseId));
-  const rooms = allRooms.filter(r => houseIds.has(r.houseId));
   const vacantCount = rooms.filter(r => r.currentStatus === 'vacant').length;
   const occupiedCount = rooms.filter(r => r.currentStatus === 'occupied').length;
   const maintenanceCount = rooms.filter(r => r.currentStatus === 'maintenance').length;
   const occupancyPct = rooms.length ? Math.round((occupiedCount / rooms.length) * 100) : 0;
 
-  const scopedBookings = BOOKINGS.filter(b => houseIds.has(b.houseId));
+  const scopedBookings = BOOKINGS;
   const bookingById = new Map(scopedBookings.map(b => [b.bookingId, b]));
   const activeBookings = scopedBookings.filter(b => b.status === 'checked-in' || b.status === 'confirmed');
   const today = new Date().toISOString().split('T')[0];
@@ -354,12 +357,9 @@ function OwnerDashboard({ currentUser, onNavigate }: Props) {
 
 /** Maintenance staff — rooms needing attention, not revenue/occupancy ops. */
 function MaintenanceDashboard({ currentUser, onNavigate }: Props) {
-  const { data: allHouses, loading: housesLoading, error: housesError } = useCollection<House>('houses');
-  const { data: allRooms, loading: roomsLoading } = useAllRooms();
+  const { data: HOUSES, loading: housesLoading, error: housesError } = useAccessibleHouses<House>(currentUser);
+  const { data: rooms, loading: roomsLoading } = useAccessibleRooms(currentUser);
 
-  const HOUSES = filterHousesByAccess(currentUser, allHouses);
-  const houseIds = new Set(HOUSES.map(h => h.houseId));
-  const rooms = allRooms.filter(r => houseIds.has(r.houseId));
   const maintenanceRooms = rooms.filter(r => r.currentStatus === 'maintenance');
   const vacantCount = rooms.filter(r => r.currentStatus === 'vacant').length;
   const occupiedCount = rooms.filter(r => r.currentStatus === 'occupied').length;

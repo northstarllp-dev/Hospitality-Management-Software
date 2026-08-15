@@ -7,9 +7,11 @@ export function appNavigate(router: RouterLike, page: string, params: Record<str
     case "dashboard":
       router.push("/");
       break;
-    case "houses":
-      router.push("/houses");
+    case "houses": {
+      const q = params.companyId ? `?company=${encodeURIComponent(params.companyId)}` : "";
+      router.push(`/houses${q}`);
       break;
+    }
     case "house-detail":
       router.push(`/houses/${params.houseId}`);
       break;
@@ -46,9 +48,11 @@ export function appNavigate(router: RouterLike, page: string, params: Record<str
     case "companies":
       router.push("/companies");
       break;
-    case "staff":
-      router.push("/staff");
+    case "staff": {
+      const q = params.companyId ? `?company=${encodeURIComponent(params.companyId)}` : "";
+      router.push(`/staff${q}`);
       break;
+    }
     case "bill":
     case "public-bill":
       router.push(`/bill/${params.token || params.bookingId}`);

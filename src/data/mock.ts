@@ -15,11 +15,11 @@ export interface SeedHouse extends Omit<House, 'roomCount'> {
 
 export const USERS: User[] = [
   { uid: 'sa1', name: 'Vikram Nair', email: 'vikram@havens.in', password: 'admin123', role: 'superadmin' },
-  { uid: 'adm1', name: 'Priya Sharma', email: 'priya@havens.in', password: 'admin123', role: 'admin' },
-  { uid: 'adm2', name: 'Rahul Mehta', email: 'rahul@havens.in', password: 'admin123', role: 'admin' },
-  { uid: 'stf1', name: 'Arjun Pillai', email: 'arjun@havens.in', password: 'staff123', role: 'staff', assignedHouse: 'h1' },
-  { uid: 'stf2', name: 'Meena Krishnan', email: 'meena@havens.in', password: 'staff123', role: 'staff', assignedHouse: 'h2' },
-  { uid: 'stf3', name: 'Suresh Babu', email: 'suresh@havens.in', password: 'staff123', role: 'staff', assignedHouse: 'h3' },
+  { uid: 'adm1', name: 'Priya Sharma', email: 'priya@havens.in', password: 'admin123', role: 'admin', assignedHouses: ['h1', 'h2'] },
+  { uid: 'adm2', name: 'Rahul Mehta', email: 'rahul@havens.in', password: 'admin123', role: 'admin', assignedHouses: ['h3'] },
+  { uid: 'stf1', name: 'Arjun Pillai', email: 'arjun@havens.in', password: 'staff123', role: 'staff', assignedHouse: 'h1', assignedHouses: ['h1'] },
+  { uid: 'stf2', name: 'Meena Krishnan', email: 'meena@havens.in', password: 'staff123', role: 'staff', assignedHouse: 'h2', assignedHouses: ['h2'] },
+  { uid: 'stf3', name: 'Suresh Babu', email: 'suresh@havens.in', password: 'staff123', role: 'staff', assignedHouse: 'h3', assignedHouses: ['h3'] },
 ];
 
 export const HOUSES: SeedHouse[] = [
