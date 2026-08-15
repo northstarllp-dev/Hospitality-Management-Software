@@ -77,3 +77,20 @@ export function filterHousesByAccess<T extends { houseId: string }>(
   if (!user || canViewAllHouses(user)) return houses;
   return houses.filter((h) => h.houseId === user.assignedHouse);
 }
+
+/** Human-facing role names for the portal. */
+export function roleDisplayLabel(role: unknown): string {
+  const r = normalizeRole(role);
+  if (r === "superadmin") return "Super Admin";
+  if (r === "admin") return "Property Owner";
+  return "Maintenance";
+}
+
+export function canManageCompanies(user: Pick<User, "role"> | null | undefined): boolean {
+  return isSuperAdmin(user);
+}
+
+/** Guest stay purchases — property owners (not catalogue editing). */
+export function canAddGuestPurchases(user: Pick<User, "role"> | null | undefined): boolean {
+  return normalizeRole(user?.role) === "admin";
+}

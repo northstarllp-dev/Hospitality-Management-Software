@@ -2,9 +2,10 @@
 
 import { useState } from 'react';
 import { useAuth } from './AuthProvider';
+import InstallAppButton from './InstallAppButton';
 import { usePathname, useRouter } from 'next/navigation';
 import type { User } from '../data/types';
-import { canAccessNav, isSuperAdmin, normalizeRole } from '@/lib/permissions';
+import { canAccessNav, isSuperAdmin, isStaff, normalizeRole, roleDisplayLabel } from '@/lib/permissions';
 
 interface NavItem {
   id: string;
@@ -16,11 +17,13 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { id: 'dashboard', href: '/', label: 'Dashboard', icon: '◈', roles: ['superadmin', 'admin', 'staff'] },
+  { id: 'companies', href: '/companies', label: 'Companies', icon: '▣', roles: ['superadmin'] },
   { id: 'houses', href: '/houses', label: 'Properties', icon: '⌂', roles: ['superadmin', 'admin', 'staff'] },
-  { id: 'bookings', href: '/bookings', label: 'Bookings', icon: '◷', roles: ['superadmin', 'admin', 'staff'] },
-  { id: 'customers', href: '/customers', label: 'Guests', icon: '◉', roles: ['superadmin', 'admin', 'staff'] },
-  { id: 'catalogue', href: '/catalogue', label: 'Catalogue', icon: '≡', roles: ['superadmin', 'admin', 'staff'] },
-  { id: 'staff', href: '/staff', label: 'Staff', icon: '◎', roles: ['superadmin'] },
+  { id: 'bookings', href: '/bookings', label: 'Bookings', icon: '◷', roles: ['admin'] },
+  { id: 'purchases', href: '/purchases', label: 'Guest Purchases', icon: '＋', roles: ['admin'] },
+  { id: 'customers', href: '/customers', label: 'Guests', icon: '◉', roles: ['admin'] },
+  { id: 'catalogue', href: '/catalogue', label: 'Catalogue', icon: '≡', roles: ['admin'] },
+  { id: 'staff', href: '/staff', label: 'Team', icon: '◎', roles: ['superadmin'] },
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -35,13 +38,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
-  // Super admin always sees every nav item
-  const visibleNav = isSuperAdmin(currentUser)
-    ? NAV_ITEMS
-    : NAV_ITEMS.filter(n => canAccessNav(currentUser, n.roles));
+  const visibleNav = NAV_ITEMS.filter(n => {
+    if (isSuperAdmin(currentUser)) {
+      return n.roles.includes('superadmin') || n.id === 'dashboard' || n.id === 'houses' || n.id === 'companies' || n.id === 'staff';
+    }
+    if (isStaff(currentUser)) {
+      return n.id === 'dashboard' || n.id === 'houses';
+    }
+    return canAccessNav(currentUser, n.roles);
+  });
 
   const role = normalizeRole(currentUser.role);
-  const roleLabel = role === 'superadmin' ? 'Super Admin' : role === 'admin' ? 'House Admin' : 'Staff';
+  const roleLabel = roleDisplayLabel(role);
   const roleBadgeColor = role === 'superadmin'
     ? 'bg-[#2A5244] text-[#F7F3EE]'
     : role === 'admin'
@@ -103,6 +111,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${roleBadgeColor}`}>{roleLabel}</span>
             </div>
           </div>
+          <InstallAppButton variant="sidebar" />
           <button
             onClick={logout}
             className="w-full text-left text-xs px-3 py-2 rounded transition-colors hover:bg-white/10"

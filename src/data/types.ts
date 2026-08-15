@@ -35,6 +35,18 @@ export interface House {
   description: string;
   coverImage: string;
   roomCount?: number;
+  /** Owning company (managed by super admin) */
+  companyId?: string | null;
+}
+
+export interface Company {
+  companyId: string;
+  name: string;
+  contactName?: string;
+  contactPhone?: string;
+  contactEmail?: string;
+  notes?: string;
+  createdAt?: string;
 }
 
 export interface Customer {
@@ -65,6 +77,17 @@ export interface Purchase {
   timestamp: string;
 }
 
+export interface BookingPayment {
+  paymentId: string;
+  /** Amount received in ₹ */
+  amount: number;
+  /** ISO timestamp when payment was recorded */
+  paidAt: string;
+  /** Optional note e.g. UPI / cash / advance */
+  note?: string;
+  recordedBy?: string;
+}
+
 export interface Booking {
   bookingId: string;
   houseId: string;
@@ -83,6 +106,8 @@ export interface Booking {
   extraBedsUsed?: number;
   /** Nightly rate per extra bed (snapshot at booking) */
   extraBedRate?: number;
+  /** Advance / partial payments recorded before or after checkout */
+  payments?: BookingPayment[];
   /** Whether the stay bill has been marked paid */
   paid?: boolean;
   paidAt?: string;
@@ -122,6 +147,11 @@ export interface BillSnapshot {
   subtotal: number;
   taxAmount: number;
   totalWithTax: number;
+  /** Sum of advance / partial payments applied to this bill */
+  amountPaid?: number;
+  /** Remaining amount due after payments (never negative) */
+  balanceDue?: number;
+  payments?: BookingPayment[];
   createdAt: string;
   paid?: boolean;
   paidAt?: string;
@@ -164,6 +194,18 @@ export function calcBookingTotal(booking: Booking, purchases: Purchase[] = []): 
   );
   const purchaseTotal = purchases.reduce((sum, p) => sum + p.price * p.quantity, 0);
   return roomCharge + extraTotal + purchaseTotal;
+}
+
+export function calcAmountPaid(payments: BookingPayment[] | undefined): number {
+  return (payments ?? []).reduce((sum, p) => sum + Math.max(0, p.amount || 0), 0);
+}
+
+export function calcTaxAmount(subtotal: number): number {
+  return Math.round(Math.max(0, subtotal) * 0.12);
+}
+
+export function calcBalanceDue(totalWithTax: number, amountPaid: number): number {
+  return Math.max(0, totalWithTax - Math.max(0, amountPaid));
 }
 
 export function calcNights(checkIn: string, checkOut: string): number {

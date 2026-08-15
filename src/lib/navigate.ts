@@ -40,6 +40,12 @@ export function appNavigate(router: RouterLike, page: string, params: Record<str
     case "catalogue":
       router.push("/catalogue");
       break;
+    case "purchases":
+      router.push("/purchases");
+      break;
+    case "companies":
+      router.push("/companies");
+      break;
     case "staff":
       router.push("/staff");
       break;

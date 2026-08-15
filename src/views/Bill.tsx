@@ -149,7 +149,34 @@ export default function Bill({ token, onNavigate }: Props) {
               <span>Total</span>
               <span style={{ fontFamily: "DM Mono, monospace" }}>{formatCurrency(bill.totalWithTax)}</span>
             </div>
-            {bill.paid && (
+            {(bill.amountPaid ?? 0) > 0 && (
+              <>
+                <div className="flex justify-between" style={{ color: "var(--status-vacant)" }}>
+                  <span>Paid already</span>
+                  <span style={{ fontFamily: "DM Mono, monospace" }}>−{formatCurrency(bill.amountPaid ?? 0)}</span>
+                </div>
+                {(bill.payments ?? []).length > 0 && (
+                  <div className="pl-2 space-y-1 text-xs" style={{ color: "var(--muted-foreground)" }}>
+                    {(bill.payments ?? []).map((p) => (
+                      <div key={p.paymentId} className="flex justify-between gap-2">
+                        <span>
+                          {formatDate(p.paidAt.slice(0, 10))}
+                          {p.note ? ` · ${p.note}` : ""}
+                        </span>
+                        <span style={{ fontFamily: "DM Mono, monospace" }}>{formatCurrency(p.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex justify-between text-base font-semibold">
+                  <span>Balance due</span>
+                  <span style={{ fontFamily: "DM Mono, monospace" }}>
+                    {formatCurrency(bill.balanceDue ?? Math.max(0, bill.totalWithTax - (bill.amountPaid ?? 0)))}
+                  </span>
+                </div>
+              </>
+            )}
+            {(bill.paid || (bill.balanceDue ?? 1) <= 0) && (
               <div className="text-center text-xs font-semibold py-1 rounded" style={{ background: "var(--status-vacant-bg)", color: "var(--status-vacant)" }}>
                 PAID
               </div>

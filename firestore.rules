@@ -65,7 +65,21 @@ service cloud.firestore {
         && data.address is string
         && data.description is string
         && data.coverImage is string
-        && (!('roomCount' in data) || data.roomCount is number);
+        && (!('roomCount' in data) || data.roomCount is number)
+        && (!('companyId' in data) || data.companyId == null || data.companyId is string);
+    }
+
+    function isValidCompany(data) {
+      return data.keys().hasAll(['companyId', 'name'])
+        && data.companyId is string
+        && data.name is string
+        && data.name.size() > 0
+        && data.name.size() < 160
+        && (!('contactName' in data) || data.contactName is string)
+        && (!('contactPhone' in data) || data.contactPhone is string)
+        && (!('contactEmail' in data) || data.contactEmail is string)
+        && (!('notes' in data) || data.notes is string)
+        && (!('createdAt' in data) || data.createdAt is string);
     }
 
     function isValidRoom(data) {
@@ -128,6 +142,7 @@ service cloud.firestore {
         && (!('extraBedsUsed' in data) || (data.extraBedsUsed is number && data.extraBedsUsed >= 0))
         && (!('extraBedRate' in data) || (data.extraBedRate is number && data.extraBedRate >= 0))
         && (!('discount' in data) || (data.discount is number && data.discount >= 0))
+        && (!('payments' in data) || (data.payments is list && data.payments.size() <= 40))
         && (!('paid' in data) || data.paid is bool)
         && (!('paidAt' in data) || data.paidAt == null || data.paidAt is string)
         && (!('shareToken' in data) || data.shareToken is string)
@@ -166,6 +181,9 @@ service cloud.firestore {
         && (!('extraBedRate' in data) || data.extraBedRate is number)
         && (!('extraBedTotal' in data) || data.extraBedTotal is number)
         && (!('discount' in data) || data.discount is number)
+        && (!('amountPaid' in data) || (data.amountPaid is number && data.amountPaid >= 0))
+        && (!('balanceDue' in data) || (data.balanceDue is number && data.balanceDue >= 0))
+        && (!('payments' in data) || (data.payments is list && data.payments.size() <= 40))
         && (!('paid' in data) || data.paid is bool)
         && (!('paidAt' in data) || data.paidAt == null || data.paidAt is string)
         && (!('shareToken' in data) || data.shareToken is string);
@@ -243,6 +261,13 @@ service cloud.firestore {
       allow read: if hasStaffAccess();
       allow create, update: if hasStaffAccess() && isValidPurchase(request.resource.data);
       allow delete: if hasStaffAccess();
+    }
+
+    match /companies/{companyId} {
+      allow read: if hasStaffAccess();
+      allow create, update: if isSuperAdmin() && isValidCompany(request.resource.data)
+        && request.resource.data.companyId == companyId;
+      allow delete: if isSuperAdmin();
     }
 
     match /bills/{bookingId} {

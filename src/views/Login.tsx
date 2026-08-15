@@ -5,6 +5,7 @@ import { auth, db } from '@/lib/firebase/config';
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { normalizeRole } from '@/lib/permissions';
+import InstallAppButton from '@/components/InstallAppButton';
 
 interface LoginProps {
   onLogin: (user: User) => void;
@@ -308,13 +309,15 @@ export default function Login({ onLogin }: LoginProps) {
                       {u.role === 'superadmin'
                         ? 'Super Admin'
                         : u.role === 'admin'
-                          ? 'Admin'
-                          : `Staff · ${u.assignedHouse}`}
+                          ? 'Property Owner'
+                          : 'Maintenance'}
                     </span>
                   </button>
                 ))}
               </div>
             </div>
+
+            <InstallAppButton variant="login" />
           </div>
         </div>
 

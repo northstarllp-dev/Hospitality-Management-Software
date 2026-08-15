@@ -172,6 +172,7 @@ export async function checkoutBookingAtomic(
     status: "checked-out",
     paid: bill.paid ?? false,
     paidAt: bill.paidAt ?? null,
+    payments: bill.payments ?? booking.payments ?? [],
     shareToken,
   });
   await batch.commit();

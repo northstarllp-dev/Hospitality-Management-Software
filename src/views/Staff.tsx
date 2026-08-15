@@ -5,7 +5,7 @@ import { db, firebaseConfig } from '../lib/firebase/config';
 import { doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { initializeApp, deleteApp, getApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
-import { canManageStaff, isSuperAdmin, normalizeRole } from '@/lib/permissions';
+import { canManageStaff, isSuperAdmin, normalizeRole, roleDisplayLabel } from '@/lib/permissions';
 import { useToast } from '@/components/ToastProvider';
 
 interface Props {
@@ -46,8 +46,7 @@ export default function Staff({ currentUser }: Props) {
   });
   const [saving, setSaving] = useState(false);
 
-  const roleLabel = (role: User['role']) =>
-    ({ superadmin: 'Super Admin', admin: 'House Admin', staff: 'Staff' }[normalizeRole(role)]);
+  const roleLabel = (role: User['role']) => roleDisplayLabel(role);
   const roleBadge = (role: User['role']) =>
     ({
       superadmin: { bg: 'var(--primary)', text: 'var(--primary-foreground)' },
@@ -104,8 +103,10 @@ export default function Staff({ currentUser }: Props) {
     <div className="p-6 lg:p-8 max-w-4xl mx-auto">
       <div className="flex items-end justify-between mb-6 gap-3 flex-wrap">
         <div>
-          <h1 className="text-3xl mb-1" style={{ fontFamily: 'DM Serif Display, serif', color: 'var(--foreground)' }}>Staff</h1>
-          <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>{staffList.length} accounts</p>
+          <h1 className="text-3xl mb-1" style={{ fontFamily: 'DM Serif Display, serif', color: 'var(--foreground)' }}>Team</h1>
+          <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
+            {staffList.length} accounts · property owners &amp; maintenance
+          </p>
         </div>
         {canManageStaff(currentUser) && (
           <button
@@ -113,7 +114,7 @@ export default function Staff({ currentUser }: Props) {
             className="px-4 py-2 rounded-md text-sm font-semibold"
             style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
           >
-            {showAdd ? 'Cancel' : '+ Add Staff'}
+            {showAdd ? 'Cancel' : '+ Add Person'}
           </button>
         )}
       </div>
@@ -152,8 +153,8 @@ export default function Staff({ currentUser }: Props) {
               className="px-3 py-2 rounded text-sm outline-none"
               style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
             >
-              <option value="staff">Staff</option>
-              <option value="admin">House Admin</option>
+              <option value="admin">Property Owner</option>
+              <option value="staff">Maintenance</option>
             </select>
             {newUser.role === 'staff' && (
               <select

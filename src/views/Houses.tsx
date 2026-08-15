@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { User, House, Room } from '../data/types';
+import type { User, House, Room, Company } from '../data/types';
 import { useCollection, useAllRooms } from '../lib/firebase/hooks';
 import { db } from '../lib/firebase/config';
 import { doc, setDoc, writeBatch } from 'firebase/firestore';
@@ -29,8 +29,10 @@ export default function Houses({ currentUser, onNavigate }: Props) {
     description: '',
     coverImage: '',
     roomCount: 4,
+    companyId: '',
   });
 
+  const { data: companies } = useCollection<Company>('companies');
   const accessibleHouses = filterHousesByAccess(currentUser, allHouses);
 
   const handleAddHouse = async (e: React.FormEvent) => {
@@ -49,6 +51,7 @@ export default function Houses({ currentUser, onNavigate }: Props) {
         description: newHouse.description.trim(),
         coverImage,
         roomCount,
+        companyId: newHouse.companyId || null,
       });
 
       if (roomCount > 0) {
@@ -81,7 +84,7 @@ export default function Houses({ currentUser, onNavigate }: Props) {
       await catBatch.commit();
 
       setShowAdd(false);
-      setNewHouse({ name: '', address: '', description: '', coverImage: '', roomCount: 4 });
+      setNewHouse({ name: '', address: '', description: '', coverImage: '', roomCount: 4, companyId: '' });
       toast.success('Property created.');
       onNavigate('house-detail', { houseId });
     } catch (err) {
@@ -141,6 +144,20 @@ export default function Houses({ currentUser, onNavigate }: Props) {
                 style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
               />
               <p className="text-xs mt-1" style={{ color: 'var(--muted-foreground)' }}>Creates vacant rooms you can configure later.</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--muted-foreground)' }}>Company</label>
+              <select
+                value={newHouse.companyId}
+                onChange={e => setNewHouse({ ...newHouse, companyId: e.target.value })}
+                className="w-full px-3 py-2 rounded text-sm outline-none"
+                style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
+              >
+                <option value="">Unassigned</option>
+                {companies.map(c => (
+                  <option key={c.companyId} value={c.companyId}>{c.name}</option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--muted-foreground)' }}>Cover photo URL</label>

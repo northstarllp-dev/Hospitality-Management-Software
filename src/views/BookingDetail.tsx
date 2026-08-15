@@ -1,6 +1,15 @@
 import { useMemo, useState } from 'react';
-import type { User, House, Booking, Customer, CatalogueItem, BillSnapshot, Purchase } from '../data/types';
-import { formatCurrency, calcNights, formatDate, calcExtraBedTotal, calcBookingTotal } from '../data/types';
+import type { User, House, Booking, BookingPayment, Customer, CatalogueItem, BillSnapshot, Purchase } from '../data/types';
+import {
+  formatCurrency,
+  calcNights,
+  formatDate,
+  calcExtraBedTotal,
+  calcBookingTotal,
+  calcAmountPaid,
+  calcTaxAmount,
+  calcBalanceDue,
+} from '../data/types';
 import { useCollection, useHouseRooms, usePurchasesByBooking } from '../lib/firebase/hooks';
 import { db } from '../lib/firebase/config';
 import { doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
@@ -42,6 +51,9 @@ export default function BookingDetail({ currentUser, bookingId, openAddPurchase,
   const [editCheckOut, setEditCheckOut] = useState('');
   const [editRent, setEditRent] = useState(0);
   const [editDiscount, setEditDiscount] = useState(0);
+  const [payAmount, setPayAmount] = useState('');
+  const [payNote, setPayNote] = useState('');
+  const [showPayForm, setShowPayForm] = useState(false);
   const loading = bookingsLoading || housesLoading || purchasesLoading;
 
   if (loading) return <div className="p-8 text-center" style={{ color: 'var(--muted-foreground)' }}>Loading booking…</div>;
@@ -62,9 +74,15 @@ export default function BookingDetail({ currentUser, bookingId, openAddPurchase,
   const extraBedTotal = calcExtraBedTotal(extraBedsUsed, extraBedRate, nights);
   const purchaseTotal = purchases.reduce((s, p) => s + p.price * p.quantity, 0);
   const grandTotal = calcBookingTotal(booking, purchases);
+  const taxEstimate = calcTaxAmount(grandTotal);
+  const totalWithTaxEstimate = grandTotal + taxEstimate;
+  const payments = booking.payments ?? [];
+  const amountPaid = calcAmountPaid(payments);
+  const balanceDue = calcBalanceDue(totalWithTaxEstimate, amountPaid);
   const checkedOut = booking.status === 'checked-out';
   const cancelled = booking.status === 'cancelled';
   const canEditCharges = !checkedOut && !cancelled && (booking.status === 'checked-in' || booking.status === 'confirmed');
+  const canRecordPayment = !cancelled;
   const canCancel = booking.status === 'confirmed' || booking.status === 'checked-in';
 
   const STATUS_STYLE: Record<string, { bg: string; text: string }> = {
@@ -83,9 +101,37 @@ export default function BookingDetail({ currentUser, bookingId, openAddPurchase,
   const guestPhone = customer?.phone?.replace(/[^0-9]/g, '') ?? '';
   const whatsappUrl = guestPhone
     ? `https://wa.me/${guestPhone}?text=${encodeURIComponent(
-        `Hi ${customer?.name ?? 'guest'}, your stay at ${house?.name} (Room ${room?.roomNumber}) bill is ready. Total: ${formatCurrency(grandTotal)}. View bill: ${billUrl}`
+        `Hi ${customer?.name ?? 'guest'}, your stay at ${house?.name} (Room ${room?.roomNumber}) bill is ready. Total: ${formatCurrency(totalWithTaxEstimate)}${amountPaid > 0 ? `. Paid: ${formatCurrency(amountPaid)}. Balance: ${formatCurrency(balanceDue)}` : ''}. View bill: ${billUrl}`
       )}`
     : null;
+
+  const syncBillPayments = async (
+    nextPayments: BookingPayment[],
+    opts?: { markFullyPaid?: boolean }
+  ) => {
+    const paidSum = calcAmountPaid(nextPayments);
+    const bal = calcBalanceDue(totalWithTaxEstimate, paidSum);
+    const fullyPaid = opts?.markFullyPaid || bal <= 0;
+    const paidAt = fullyPaid ? new Date().toISOString() : null;
+    const billPatch = {
+      payments: nextPayments,
+      amountPaid: paidSum,
+      balanceDue: bal,
+      paid: fullyPaid,
+      paidAt,
+    };
+    await updateDoc(doc(db, 'bookings', bookingId), {
+      payments: nextPayments,
+      paid: fullyPaid,
+      paidAt,
+    });
+    if (checkedOut) {
+      await updateDoc(doc(db, 'bills', bookingId), billPatch).catch(() => {});
+      if (booking.shareToken) {
+        await updateDoc(doc(db, 'publicBills', booking.shareToken), billPatch).catch(() => {});
+      }
+    }
+  };
 
   const handleAddPurchase = async () => {
     if (!addItem) return;
@@ -154,10 +200,58 @@ export default function BookingDetail({ currentUser, bookingId, openAddPurchase,
     }
   };
 
+  const handleAddPayment = async () => {
+    const amount = Math.round(Number(payAmount));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error('Enter a valid payment amount.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const entry: BookingPayment = {
+        paymentId: createId('pay'),
+        amount,
+        paidAt: new Date().toISOString(),
+        note: payNote.trim() || undefined,
+        recordedBy: currentUser.uid,
+      };
+      const next = [...payments, entry];
+      await syncBillPayments(next);
+      setPayAmount('');
+      setPayNote('');
+      setShowPayForm(false);
+      toast.success('Payment recorded.');
+    } catch (e) {
+      console.error(e);
+      toast.error('Could not record payment.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRemovePayment = async (paymentId: string) => {
+    if (!window.confirm('Remove this payment?')) return;
+    setSaving(true);
+    try {
+      const next = payments.filter((p) => p.paymentId !== paymentId);
+      await syncBillPayments(next);
+      toast.success('Payment removed.');
+    } catch (e) {
+      console.error(e);
+      toast.error('Could not remove payment.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleCheckout = async () => {
     setCheckingOut(true);
     try {
-      const taxAmount = Math.round(grandTotal * 0.12);
+      const taxAmount = calcTaxAmount(grandTotal);
+      const totalWithTax = grandTotal + taxAmount;
+      const paidSum = calcAmountPaid(payments);
+      const bal = calcBalanceDue(totalWithTax, paidSum);
+      const fullyPaid = bal <= 0;
       const bill: BillSnapshot = {
         bookingId,
         houseId: booking.houseId,
@@ -186,9 +280,13 @@ export default function BookingDetail({ currentUser, bookingId, openAddPurchase,
         purchaseTotal,
         subtotal: grandTotal,
         taxAmount,
-        totalWithTax: grandTotal + taxAmount,
+        totalWithTax,
+        amountPaid: paidSum,
+        balanceDue: bal,
+        payments,
         createdAt: new Date().toISOString(),
-        paid: false,
+        paid: fullyPaid,
+        paidAt: fullyPaid ? new Date().toISOString() : undefined,
       };
 
       const { shareToken } = await checkoutBookingAtomic(
@@ -198,7 +296,7 @@ export default function BookingDetail({ currentUser, bookingId, openAddPurchase,
         room?.currentStatus ?? 'vacant'
       );
       setVacatePanel(false);
-      toast.success('Checked out. Guest bill is ready.');
+      toast.success(fullyPaid ? 'Checked out. Bill fully paid.' : 'Checked out. Guest bill is ready.');
       onNavigate('public-bill', { token: shareToken, bookingId });
     } catch (e: any) {
       console.error(e);
@@ -212,10 +310,16 @@ export default function BookingDetail({ currentUser, bookingId, openAddPurchase,
     setSaving(true);
     try {
       const paidAt = new Date().toISOString();
+      const billPatch = {
+        paid: true,
+        paidAt,
+        amountPaid: Math.max(amountPaid, totalWithTaxEstimate),
+        balanceDue: 0,
+      };
       await updateDoc(doc(db, 'bookings', bookingId), { paid: true, paidAt });
-      await updateDoc(doc(db, 'bills', bookingId), { paid: true, paidAt }).catch(() => {});
+      await updateDoc(doc(db, 'bills', bookingId), billPatch).catch(() => {});
       if (booking.shareToken) {
-        await updateDoc(doc(db, 'publicBills', booking.shareToken), { paid: true, paidAt }).catch(() => {});
+        await updateDoc(doc(db, 'publicBills', booking.shareToken), billPatch).catch(() => {});
       }
       toast.success('Marked as paid.');
     } catch (e) {
@@ -394,6 +498,14 @@ export default function BookingDetail({ currentUser, bookingId, openAddPurchase,
           <div className="text-sm mb-4" style={{ color: 'var(--muted-foreground)' }}>
             Current total (before tax): <span style={{ color: 'var(--foreground)', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(grandTotal)}</span>
             {purchases.length > 0 ? ` · ${purchases.length} purchase line${purchases.length === 1 ? '' : 's'}` : ' · no catalogue purchases yet'}
+            <br />
+            Est. with GST: <span style={{ color: 'var(--foreground)', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(totalWithTaxEstimate)}</span>
+            {amountPaid > 0 && (
+              <>
+                {' · '}Paid: <span style={{ color: 'var(--status-vacant)', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(amountPaid)}</span>
+                {' · '}Balance: <span style={{ fontFamily: 'DM Mono, monospace' }}>{formatCurrency(balanceDue)}</span>
+              </>
+            )}
           </div>
 
           <div className="flex gap-2 flex-wrap">
@@ -655,9 +767,119 @@ export default function BookingDetail({ currentUser, bookingId, openAddPurchase,
           </div>
         )}
 
-        <div className="flex items-center justify-between px-5 py-4" style={{ background: 'var(--secondary)' }}>
-          <div className="text-base font-semibold" style={{ color: 'var(--foreground)' }}>Total</div>
-          <div className="text-xl font-semibold" style={{ fontFamily: 'DM Serif Display, serif', color: 'var(--foreground)' }}>{formatCurrency(grandTotal)}</div>
+        <div className="px-5 py-3" style={{ borderBottom: '1px solid var(--border)', background: 'var(--secondary)' }}>
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <div>
+              <div className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>Payments received</div>
+              <div className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                Advances and partial payments applied to the bill
+              </div>
+            </div>
+            {canRecordPayment && (
+              <button
+                type="button"
+                onClick={() => setShowPayForm(v => !v)}
+                className="text-xs px-3 py-1.5 rounded font-medium"
+                style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
+              >
+                {showPayForm ? 'Cancel' : '+ Add payment'}
+              </button>
+            )}
+          </div>
+
+          {showPayForm && canRecordPayment && (
+            <div className="flex flex-wrap gap-3 items-end mb-3">
+              <div className="w-36">
+                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--muted-foreground)' }}>Amount (₹)</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={payAmount}
+                  onChange={e => setPayAmount(e.target.value)}
+                  className="w-full px-3 py-2 rounded text-sm outline-none"
+                  style={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
+                  placeholder="e.g. 2000"
+                />
+              </div>
+              <div className="flex-1 min-w-40">
+                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--muted-foreground)' }}>Note (optional)</label>
+                <input
+                  type="text"
+                  value={payNote}
+                  onChange={e => setPayNote(e.target.value)}
+                  className="w-full px-3 py-2 rounded text-sm outline-none"
+                  style={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
+                  placeholder="Advance / UPI / Cash"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={handleAddPayment}
+                disabled={saving || !payAmount}
+                className="px-4 py-2 rounded text-sm font-semibold disabled:opacity-50"
+                style={{ background: 'var(--accent)', color: 'white' }}
+              >
+                Save payment
+              </button>
+            </div>
+          )}
+
+          {payments.length === 0 ? (
+            <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>No payments recorded yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {payments.map(p => (
+                <div key={p.paymentId} className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm" style={{ color: 'var(--foreground)', fontFamily: 'DM Mono, monospace' }}>
+                      {formatCurrency(p.amount)}
+                    </div>
+                    <div className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                      {formatDate(p.paidAt.slice(0, 10))}
+                      {p.note ? ` · ${p.note}` : ''}
+                    </div>
+                  </div>
+                  {canRecordPayment && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemovePayment(p.paymentId)}
+                      className="text-xs flex-shrink-0"
+                      style={{ color: 'var(--status-occupied)' }}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-4 space-y-1.5" style={{ background: 'var(--secondary)' }}>
+          <div className="flex items-center justify-between">
+            <div className="text-sm" style={{ color: 'var(--muted-foreground)' }}>Charges (ex. GST)</div>
+            <div className="text-sm" style={{ fontFamily: 'DM Mono, monospace', color: 'var(--foreground)' }}>{formatCurrency(grandTotal)}</div>
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="text-sm" style={{ color: 'var(--muted-foreground)' }}>Est. GST (12%)</div>
+            <div className="text-sm" style={{ fontFamily: 'DM Mono, monospace', color: 'var(--foreground)' }}>{formatCurrency(taxEstimate)}</div>
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>Bill total</div>
+            <div className="text-lg font-semibold" style={{ fontFamily: 'DM Serif Display, serif', color: 'var(--foreground)' }}>{formatCurrency(totalWithTaxEstimate)}</div>
+          </div>
+          {amountPaid > 0 && (
+            <>
+              <div className="flex items-center justify-between pt-1" style={{ borderTop: '1px solid var(--border)' }}>
+                <div className="text-sm" style={{ color: 'var(--status-vacant)' }}>Paid already</div>
+                <div className="text-sm" style={{ fontFamily: 'DM Mono, monospace', color: 'var(--status-vacant)' }}>−{formatCurrency(amountPaid)}</div>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="text-base font-semibold" style={{ color: 'var(--foreground)' }}>Balance due</div>
+                <div className="text-xl font-semibold" style={{ fontFamily: 'DM Serif Display, serif', color: 'var(--foreground)' }}>{formatCurrency(balanceDue)}</div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
