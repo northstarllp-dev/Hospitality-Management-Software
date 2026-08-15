@@ -5,7 +5,7 @@ import { useCollection, useHouseRooms, usePurchasesByBooking } from '../lib/fire
 import { db } from '../lib/firebase/config';
 import { doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import type { Page } from '../components/Layout';
-import { cancelBookingAtomic, checkInBookingAtomic, checkoutBookingAtomic } from '@/lib/bookingService';
+import { cancelBookingAtomic, checkInBookingAtomic, checkoutBookingAtomic, updateBookingDatesAtomic } from '@/lib/bookingService';
 import { createId } from '@/lib/ids';
 import { useToast } from '@/components/ToastProvider';
 import { canAccessHouse } from '@/lib/permissions';
@@ -37,7 +37,11 @@ export default function BookingDetail({ currentUser, bookingId, openAddPurchase,
   const [saving, setSaving] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
   const [vacatePanel, setVacatePanel] = useState(false);
-
+  const [reschedulePanel, setReschedulePanel] = useState(false);
+  const [editCheckIn, setEditCheckIn] = useState('');
+  const [editCheckOut, setEditCheckOut] = useState('');
+  const [editRent, setEditRent] = useState(0);
+  const [editDiscount, setEditDiscount] = useState(0);
   const loading = bookingsLoading || housesLoading || purchasesLoading;
 
   if (loading) return <div className="p-8 text-center" style={{ color: 'var(--muted-foreground)' }}>Loading booking…</div>;
@@ -222,6 +226,35 @@ export default function BookingDetail({ currentUser, bookingId, openAddPurchase,
     }
   };
 
+  const openReschedule = () => {
+    setEditCheckIn(booking.checkIn);
+    setEditCheckOut(booking.checkOut);
+    setEditRent(booking.rent);
+    setEditDiscount(booking.discount ?? 0);
+    setReschedulePanel(true);
+    setVacatePanel(false);
+  };
+
+  const handleReschedule = async () => {
+    setSaving(true);
+    try {
+      await updateBookingDatesAtomic(db, booking, {
+        checkIn: editCheckIn,
+        checkOut: editCheckOut,
+        rent: editRent,
+        discount: editDiscount,
+        roomCurrentStatus: room?.currentStatus ?? 'vacant'
+      });
+      toast.success('Booking updated.');
+      setReschedulePanel(false);
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e?.message || 'Could not update booking.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="p-6 lg:p-8 max-w-3xl mx-auto">
       <button className="text-sm mb-5 flex items-center gap-1" style={{ color: 'var(--muted-foreground)' }} onClick={() => onNavigate('bookings')}>
@@ -260,13 +293,22 @@ export default function BookingDetail({ currentUser, bookingId, openAddPurchase,
             </button>
           )}
           {canEditCharges && (
-            <button
-              onClick={() => { setVacatePanel(true); setShowAddForm(true); }}
-              className="px-4 py-2 rounded-md text-sm font-semibold"
-              style={{ background: 'var(--accent)', color: 'white' }}
-            >
-              Vacate & Bill
-            </button>
+            <>
+              <button
+                onClick={openReschedule}
+                className="px-4 py-2 rounded-md text-sm font-semibold"
+                style={{ background: 'var(--secondary)', color: 'var(--secondary-foreground)' }}
+              >
+                Reschedule / Extend
+              </button>
+              <button
+                onClick={() => { setVacatePanel(true); setReschedulePanel(false); setShowAddForm(true); }}
+                className="px-4 py-2 rounded-md text-sm font-semibold"
+                style={{ background: 'var(--accent)', color: 'white' }}
+              >
+                Vacate & Bill
+              </button>
+            </>
           )}
           {canCancel && (
             <button
@@ -365,6 +407,99 @@ export default function BookingDetail({ currentUser, bookingId, openAddPurchase,
             </button>
             <button
               onClick={() => setVacatePanel(false)}
+              className="px-4 py-2 rounded-md text-sm font-medium"
+              style={{ background: 'var(--secondary)', color: 'var(--secondary-foreground)' }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {reschedulePanel && canEditCharges && (
+        <div className="rounded-lg p-5 mb-5" style={{ background: 'var(--card)', border: '2px solid var(--accent)' }}>
+          <h2 className="text-sm font-semibold mb-1" style={{ color: 'var(--foreground)' }}>Reschedule or Extend Booking</h2>
+          <p className="text-xs mb-4" style={{ color: 'var(--muted-foreground)' }}>
+            Update the dates for this stay. The system will verify if the room is available for the new dates.
+          </p>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
+            <div>
+              <label className="block text-xs font-medium mb-1" style={{ color: 'var(--muted-foreground)' }}>Check-in</label>
+              <input
+                type="date"
+                value={editCheckIn}
+                onChange={e => setEditCheckIn(e.target.value)}
+                className="w-full px-3 py-2 rounded text-sm outline-none"
+                style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1" style={{ color: 'var(--muted-foreground)' }}>Check-out</label>
+              <input
+                type="date"
+                value={editCheckOut}
+                onChange={e => setEditCheckOut(e.target.value)}
+                className="w-full px-3 py-2 rounded text-sm outline-none"
+                style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
+              />
+              <div className="flex gap-1 mt-1">
+                <button
+                  onClick={() => {
+                    if (!editCheckOut) return;
+                    const d = new Date(editCheckOut);
+                    d.setDate(d.getDate() + 1);
+                    setEditCheckOut(d.toISOString().split('T')[0]);
+                  }}
+                  className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--secondary)', color: 'var(--secondary-foreground)' }}
+                >+1 day</button>
+                <button
+                  onClick={() => {
+                    if (!editCheckOut) return;
+                    const d = new Date(editCheckOut);
+                    d.setDate(d.getDate() + 2);
+                    setEditCheckOut(d.toISOString().split('T')[0]);
+                  }}
+                  className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--secondary)', color: 'var(--secondary-foreground)' }}
+                >+2 days</button>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1" style={{ color: 'var(--muted-foreground)' }}>Rent / Night</label>
+              <input
+                type="number"
+                min={0}
+                value={editRent}
+                onChange={e => setEditRent(Number(e.target.value))}
+                className="w-full px-3 py-2 rounded text-sm outline-none"
+                style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1" style={{ color: 'var(--muted-foreground)' }}>Discount (Flat)</label>
+              <input
+                type="number"
+                min={0}
+                value={editDiscount}
+                onChange={e => setEditDiscount(Number(e.target.value))}
+                className="w-full px-3 py-2 rounded text-sm outline-none"
+                style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={handleReschedule}
+              disabled={saving || !editCheckIn || !editCheckOut || editCheckOut <= editCheckIn}
+              className="px-4 py-2 rounded-md text-sm font-semibold disabled:opacity-60"
+              style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
+            >
+              {saving ? 'Saving…' : 'Save Changes'}
+            </button>
+            <button
+              onClick={() => setReschedulePanel(false)}
+              disabled={saving}
               className="px-4 py-2 rounded-md text-sm font-medium"
               style={{ background: 'var(--secondary)', color: 'var(--secondary-foreground)' }}
             >

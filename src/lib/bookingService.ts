@@ -188,3 +188,51 @@ export async function checkoutBookingAtomic(
 
   return { shareToken };
 }
+
+export interface UpdateBookingInput {
+  checkIn: string;
+  checkOut: string;
+  rent: number;
+  discount: number;
+  roomCurrentStatus: RoomStatus;
+}
+
+export async function updateBookingDatesAtomic(
+  db: Firestore,
+  booking: Booking,
+  input: UpdateBookingInput
+) {
+  if (booking.status === "checked-out" || booking.status === "cancelled") {
+    throw new Error("Cannot modify dates for a past or cancelled booking.");
+  }
+  if (input.checkOut <= input.checkIn) {
+    throw new Error("Check-out must be after check-in.");
+  }
+
+  const existing = await fetchRoomBookings(db, booking.roomId);
+  if (roomHasConflict(booking.roomId, input.checkIn, input.checkOut, existing, booking.bookingId)) {
+    throw new Error("The room is unavailable for the selected dates.");
+  }
+
+  const batch = writeBatch(db);
+  batch.update(doc(db, "bookings", booking.bookingId), {
+    checkIn: input.checkIn,
+    checkOut: input.checkOut,
+    rent: input.rent,
+    discount: input.discount,
+  });
+  
+  // Re-calculate room status if dates changed
+  const updatedBookings = existing.map(b => b.bookingId === booking.bookingId ? {
+    ...b,
+    checkIn: input.checkIn,
+    checkOut: input.checkOut,
+  } : b);
+  
+  const nextStatus = deriveRoomStatus(input.roomCurrentStatus, updatedBookings);
+  batch.update(doc(db, "houses", booking.houseId, "rooms", booking.roomId), {
+    currentStatus: nextStatus,
+  });
+
+  await batch.commit();
+}
