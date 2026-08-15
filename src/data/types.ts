@@ -98,6 +98,8 @@ export interface Booking {
   bookingId: string;
   houseId: string;
   roomId: string;
+  /** Snapshot of room number at booking time (for calendar chips) */
+  roomNumber?: string;
   customerId: string;
   checkIn: string;
   checkOut: string;

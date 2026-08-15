@@ -204,6 +204,7 @@ export default function BookingNew({
           return createBookingAtomic(db, {
             houseId,
             roomId,
+            roomNumber: room.roomNumber,
             customerId: resolvedCustomerId,
             checkIn,
             checkOut,

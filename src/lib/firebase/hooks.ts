@@ -28,6 +28,18 @@ function chunkIds(ids: string[], size = IN_LIMIT): string[][] {
   return chunks;
 }
 
+/** Fill roomId / houseId from Firestore path when missing on the document. */
+function mapRoomDoc(d: { id: string; ref: { parent: { parent: { id: string } | null } }; data: () => DocumentData }): Room {
+  const data = d.data();
+  const pathHouseId = d.ref.parent.parent?.id ?? "";
+  return {
+    ...(data as Room),
+    roomId: (data.roomId as string) || d.id,
+    houseId: (data.houseId as string) || pathHouseId,
+    roomNumber: String(data.roomNumber ?? ""),
+  };
+}
+
 /** Subscribe to an entire collection with real-time updates (superadmin / unscoped). */
 export function useCollection<T = DocumentData>(collectionName: string) {
   const [data, setData] = useState<T[]>([]);
@@ -265,7 +277,7 @@ export function useHouseRooms(houseId: string | null) {
     const unsub = onSnapshot(
       collection(db, "houses", houseId, "rooms"),
       (snap) => {
-        setData(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as Room));
+        setData(snap.docs.map((d) => mapRoomDoc(d)));
         setLoading(false);
       },
       (err) => {
@@ -340,7 +352,7 @@ export function useAccessibleRooms(user: User | null) {
       const unsub = onSnapshot(
         collectionGroup(db, "rooms"),
         (snap) => {
-          setData(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as Room));
+          setData(snap.docs.map((d) => mapRoomDoc(d)));
           setLoading(false);
         },
         (err) => {
@@ -351,18 +363,15 @@ export function useAccessibleRooms(user: User | null) {
       return () => unsub();
     }
 
-    const chunks = chunkIds(houseIds);
+    // Prefer per-house subcollection reads (always have path houseId) over collectionGroup
+    // filters that miss rooms missing a houseId field on the document.
     const maps = new Map<number, Room[]>();
     const unsubs: Array<() => void> = [];
-    chunks.forEach((chunk, idx) => {
-      const q = query(collectionGroup(db, "rooms"), where("houseId", "in", chunk));
+    houseIds.forEach((hid, idx) => {
       const unsub = onSnapshot(
-        q,
+        collection(db, "houses", hid, "rooms"),
         (snap) => {
-          maps.set(
-            idx,
-            snap.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as Room)
-          );
+          maps.set(idx, snap.docs.map((d) => mapRoomDoc(d)));
           setData([...maps.values()].flat());
           setLoading(false);
         },
@@ -389,7 +398,7 @@ export function useAllRooms() {
     const unsub = onSnapshot(
       collectionGroup(db, "rooms"),
       (snap) => {
-        setData(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as Room));
+        setData(snap.docs.map((d) => mapRoomDoc(d)));
         setLoading(false);
       },
       (err) => {

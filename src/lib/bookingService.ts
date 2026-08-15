@@ -59,6 +59,7 @@ export async function syncRoomOccupancy(
 export interface CreateBookingInput {
   houseId: string;
   roomId: string;
+  roomNumber?: string;
   customerId: string;
   checkIn: string;
   checkOut: string;
@@ -86,6 +87,7 @@ export async function createBookingAtomic(db: Firestore, input: CreateBookingInp
     bookingId,
     houseId: input.houseId,
     roomId: input.roomId,
+    roomNumber: input.roomNumber || undefined,
     customerId: input.customerId,
     checkIn: input.checkIn,
     checkOut: input.checkOut,
