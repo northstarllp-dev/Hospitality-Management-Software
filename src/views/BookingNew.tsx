@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { User, House, Customer, Booking } from '../data/types';
-import { formatCurrency, calcExtraBedsNeeded, calcExtraBedTotal } from '../data/types';
+import { formatCurrency, calcExtraBedsNeeded, calcExtraBedTotal, calcLineTaxes } from '../data/types';
 import { useCollection, useAccessibleBookings, useAccessibleHouses, useHouseRooms } from '../lib/firebase/hooks';
 import { getConflictingBooking } from '../lib/availability';
 import { db } from '../lib/firebase/config';
@@ -542,41 +542,72 @@ export default function BookingNew({
                     if (!config) return null;
                     const totals = calculateRoomTotals(roomId, config);
                     if (!totals) return null;
-                    
+                    const roomCharge = Math.max(0, totals.roomTotal - totals.discountAmount);
+                    const { roomTax, extraBedTax } = calcLineTaxes({
+                      roomCharge,
+                      extraBedTotal: totals.extraBedTotal,
+                    });
+
                     return (
                       <div key={roomId} className="text-xs flex flex-col gap-1 opacity-70 pb-2 border-b border-white/10 last:border-0 last:pb-0">
                         <div className="flex justify-between gap-4">
                           <span>Room {totals.r.roomNumber} ({formatCurrency(config.nightlyRate)} × {nights})</span>
                           <span style={{ fontFamily: 'DM Mono, monospace' }}>{formatCurrency(totals.roomTotal)}</span>
                         </div>
-                        {totals.extraBedsUsed > 0 && (
-                          <div className="flex justify-between gap-4 pl-2">
-                            <span>↳ Extra guests ({totals.extraBedsUsed} × {formatCurrency(config.extraBedRate)} × {nights})</span>
-                            <span style={{ fontFamily: 'DM Mono, monospace' }}>{formatCurrency(totals.extraBedTotal)}</span>
-                          </div>
-                        )}
                         {totals.discountAmount > 0 && (
                           <div className="flex justify-between gap-4 pl-2">
                             <span>↳ Discount</span>
                             <span style={{ fontFamily: 'DM Mono, monospace' }}>-{formatCurrency(totals.discountAmount)}</span>
                           </div>
                         )}
-                        {(totals.extraBedsUsed > 0 || totals.discountAmount > 0) && (
-                          <div className="flex justify-between gap-4 font-medium opacity-100 mt-1 pt-1 border-t border-white/10">
-                            <span>Room {totals.r.roomNumber} Total</span>
-                            <span style={{ fontFamily: 'DM Mono, monospace' }}>{formatCurrency(totals.total)}</span>
-                          </div>
+                        <div className="flex justify-between gap-4 pl-2">
+                          <span>↳ GST 12% (room)</span>
+                          <span style={{ fontFamily: 'DM Mono, monospace' }}>{formatCurrency(roomTax)}</span>
+                        </div>
+                        {totals.extraBedsUsed > 0 && (
+                          <>
+                            <div className="flex justify-between gap-4 pl-2">
+                              <span>↳ Extra guests ({totals.extraBedsUsed} × {formatCurrency(config.extraBedRate)} × {nights})</span>
+                              <span style={{ fontFamily: 'DM Mono, monospace' }}>{formatCurrency(totals.extraBedTotal)}</span>
+                            </div>
+                            <div className="flex justify-between gap-4 pl-2">
+                              <span>↳ GST 12% (extra guests)</span>
+                              <span style={{ fontFamily: 'DM Mono, monospace' }}>{formatCurrency(extraBedTax)}</span>
+                            </div>
+                          </>
                         )}
+                        <div className="flex justify-between gap-4 font-medium opacity-100 mt-1 pt-1 border-t border-white/10">
+                          <span>Room {totals.r.roomNumber} Total (incl. GST)</span>
+                          <span style={{ fontFamily: 'DM Mono, monospace' }}>
+                            {formatCurrency(totals.total + roomTax + extraBedTax)}
+                          </span>
+                        </div>
                       </div>
                     );
                   })}
                 </div>
               </div>
-              <div className="text-2xl font-semibold self-end" style={{ fontFamily: 'DM Serif Display, serif' }}>
-                {formatCurrency(grandTotal)}
+              <div className="text-right self-end">
+                <div className="text-xs opacity-70 mb-1">Incl. GST</div>
+                <div className="text-2xl font-semibold" style={{ fontFamily: 'DM Serif Display, serif' }}>
+                  {formatCurrency(
+                    selectedRoomIds.reduce((sum, roomId) => {
+                      const config = roomConfigs[roomId];
+                      if (!config) return sum;
+                      const totals = calculateRoomTotals(roomId, config);
+                      if (!totals) return sum;
+                      const roomCharge = Math.max(0, totals.roomTotal - totals.discountAmount);
+                      const { roomTax, extraBedTax, taxAmount } = calcLineTaxes({
+                        roomCharge,
+                        extraBedTotal: totals.extraBedTotal,
+                      });
+                      return sum + totals.total + taxAmount;
+                    }, 0)
+                  )}
+                </div>
               </div>
-            </div>
           </div>
+        </div>
         )}
 
         <button

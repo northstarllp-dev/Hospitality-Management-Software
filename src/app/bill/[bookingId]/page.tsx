@@ -19,6 +19,7 @@ export default function PublicBillPage({
   return (
     <Bill
       token={token}
+      allowStaffFallback={!!currentUser}
       onNavigate={
         currentUser
           ? (page, p) => appNavigate(router, page, p)

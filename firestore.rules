@@ -319,12 +319,11 @@ service cloud.firestore {
       allow read: if canAccessHouse(resource.data.houseId);
     }
 
-    // Guests: get by id for staff; full list only for admins (UI must still filter by stays).
-    // True tenant isolation for guests needs companyId on customer docs (next phase).
+    // Guests: staff/owners can create for bookings; list scoped in UI by stay houses.
     match /customers/{customerId} {
       allow get: if hasStaffAccess();
-      allow list: if isAdmin();
-      allow create, update: if isAdmin() && isValidCustomer(request.resource.data)
+      allow list: if hasStaffAccess();
+      allow create, update: if hasStaffAccess() && isValidCustomer(request.resource.data)
         && request.resource.data.customerId == customerId;
       allow delete: if isSuperAdmin() || isPropertyOwner();
     }

@@ -62,6 +62,7 @@ export default function Staff({ currentUser, initialCompanyFilter = '' }: Props)
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editHouses, setEditHouses] = useState<string[]>([]);
   const [editCompanyId, setEditCompanyId] = useState('');
+  const [editRole, setEditRole] = useState<User['role']>('staff');
   const [savingEdit, setSavingEdit] = useState(false);
   const [saving, setSaving] = useState(false);
   const [companyFilter, setCompanyFilter] = useState(initialCompanyFilter);
@@ -219,15 +220,16 @@ export default function Staff({ currentUser, initialCompanyFilter = '' }: Props)
     setEditingId(user.uid || (user as any).id);
     setEditHouses(getAssignedHouseIds(user));
     setEditCompanyId(user.companyId || '');
+    setEditRole(normalizeRole(user.role) === 'admin' ? 'admin' : 'staff');
     setShowAdd(false);
   };
 
   const saveAccess = async (user: User) => {
     const userId = user.uid || (user as any).id;
     if (!userId) return;
-    const role = normalizeRole(user.role);
+    const nextRole = isSuper ? normalizeRole(editRole) : 'staff';
 
-    if (role === 'admin' && !isSuper) {
+    if (normalizeRole(user.role) === 'admin' && !isSuper) {
       toast.error('Only Super Admin can edit owner property access.');
       return;
     }
@@ -239,12 +241,12 @@ export default function Staff({ currentUser, initialCompanyFilter = '' }: Props)
       toast.error('Assign at least one property.');
       return;
     }
-    if (role === 'staff' && editHouses.length !== 1) {
-      toast.error('Maintenance staff must have exactly one property.');
+    if (nextRole === 'staff' && editHouses.length !== 1) {
+      toast.error('Maintenance staff must be assigned to exactly one property.');
       return;
     }
     if (isOwner) {
-      if (role !== 'staff' || !editHouses.every(id => myHouseIds.has(id))) {
+      if (nextRole !== 'staff' || !editHouses.every(id => myHouseIds.has(id))) {
         toast.error('You can only assign staff to your own properties.');
         return;
       }
@@ -253,8 +255,9 @@ export default function Staff({ currentUser, initialCompanyFilter = '' }: Props)
     setSavingEdit(true);
     try {
       const payload: Record<string, unknown> = {
+        role: nextRole,
         assignedHouses: editHouses,
-        assignedHouse: role === 'staff' ? editHouses[0] : null,
+        assignedHouse: nextRole === 'staff' ? editHouses[0] : null,
       };
       if (isSuper) payload.companyId = editCompanyId || null;
       await updateDoc(doc(db, 'users', userId), payload);
@@ -262,6 +265,7 @@ export default function Staff({ currentUser, initialCompanyFilter = '' }: Props)
       setEditingId(null);
       setEditHouses([]);
       setEditCompanyId('');
+      setEditRole('staff');
     } catch (e) {
       console.error(e);
       toast.error('Could not update access.');
@@ -504,6 +508,7 @@ export default function Staff({ currentUser, initialCompanyFilter = '' }: Props)
                           setEditingId(null);
                           setEditHouses([]);
                           setEditCompanyId('');
+                          setEditRole('staff');
                         } else {
                           startEditAccess(user);
                         }
@@ -544,6 +549,26 @@ export default function Staff({ currentUser, initialCompanyFilter = '' }: Props)
                 <div className="mt-3">
                   {isSuper && (
                     <div className="mb-3">
+                      <div className="text-xs font-medium mb-2" style={{ color: 'var(--muted-foreground)' }}>Role</div>
+                      <select
+                        value={editRole === 'admin' ? 'admin' : 'staff'}
+                        onChange={e => {
+                          const next = e.target.value === 'admin' ? 'admin' : 'staff';
+                          setEditRole(next);
+                          if (next === 'staff' && editHouses.length > 1) {
+                            setEditHouses(editHouses.slice(0, 1));
+                          }
+                        }}
+                        className="px-3 py-2 rounded text-sm outline-none w-full max-w-sm"
+                        style={inputStyle}
+                      >
+                        <option value="admin">Property Owner</option>
+                        <option value="staff">Maintenance</option>
+                      </select>
+                    </div>
+                  )}
+                  {isSuper && (
+                    <div className="mb-3">
                       <div className="text-xs font-medium mb-2" style={{ color: 'var(--muted-foreground)' }}>Company</div>
                       <select
                         value={editCompanyId}
@@ -562,14 +587,14 @@ export default function Staff({ currentUser, initialCompanyFilter = '' }: Props)
                     </div>
                   )}
                   <div className="text-xs font-medium mb-2" style={{ color: 'var(--muted-foreground)' }}>
-                    {normalizeRole(user.role) === 'admin'
+                    {editRole === 'admin'
                       ? 'Properties this owner can access'
                       : 'Assign property'}
                   </div>
                   <div className="flex flex-wrap gap-2 mb-3">
                     {housesForEdit.map(h => {
                       const selected = editHouses.includes(h.houseId);
-                      const multi = normalizeRole(user.role) === 'admin';
+                      const multi = editRole === 'admin';
                       return (
                         <button
                           key={h.houseId}

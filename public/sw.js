@@ -1,5 +1,5 @@
 /* Havens Management — minimal service worker for installability */
-const CACHE = "havens-shell-v1";
+const CACHE = "havens-shell-v2";
 const PRECACHE = ["/", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -20,15 +20,22 @@ self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
 
+  const url = new URL(request.url);
+  // Never cache or rewrite guest bill / API navigations — always network.
+  if (url.pathname.startsWith("/bill") || request.mode === "navigate") {
+    event.respondWith(fetch(request));
+    return;
+  }
+
   event.respondWith(
     fetch(request)
       .then((response) => {
         const copy = response.clone();
-        if (request.url.startsWith(self.location.origin) && response.ok) {
+        if (url.origin === self.location.origin && response.ok) {
           caches.open(CACHE).then((cache) => cache.put(request, copy));
         }
         return response;
       })
-      .catch(() => caches.match(request).then((cached) => cached || caches.match("/")))
+      .catch(() => caches.match(request))
   );
 });

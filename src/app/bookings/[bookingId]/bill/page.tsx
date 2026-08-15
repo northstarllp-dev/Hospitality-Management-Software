@@ -11,6 +11,7 @@ export default function Page({ params: paramsPromise }: { params: Promise<{ book
   return (
     <Bill
       token={params.bookingId}
+      allowStaffFallback
       onNavigate={(page, p) => appNavigate(router, page, p)}
     />
   );

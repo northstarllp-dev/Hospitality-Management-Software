@@ -8,6 +8,7 @@ import {
   calcBookingTotal,
   calcAmountPaid,
   calcTaxAmount,
+  calcLineTaxes,
   calcBalanceDue,
 } from '../data/types';
 import { useCollection, useHouseRooms, usePurchasesByBooking } from '../lib/firebase/hooks';
@@ -17,6 +18,7 @@ import type { Page } from '../components/Layout';
 import { cancelBookingAtomic, checkInBookingAtomic, checkoutBookingAtomic, updateBookingDatesAtomic } from '@/lib/bookingService';
 import { createId } from '@/lib/ids';
 import { useToast } from '@/components/ToastProvider';
+import { getBillShareUrl, toWhatsAppPhone } from '@/lib/share';
 import { canAccessHouse } from '@/lib/permissions';
 
 interface Props {
@@ -74,7 +76,13 @@ export default function BookingDetail({ currentUser, bookingId, openAddPurchase,
   const extraBedTotal = calcExtraBedTotal(extraBedsUsed, extraBedRate, nights);
   const purchaseTotal = purchases.reduce((s, p) => s + p.price * p.quantity, 0);
   const grandTotal = calcBookingTotal(booking, purchases);
-  const taxEstimate = calcTaxAmount(grandTotal);
+  const roomCharge = Math.max(0, roomTotal - discount);
+  const purchaseAmounts = purchases.map((p) => p.price * p.quantity);
+  const { roomTax, extraBedTax, purchaseTaxes, taxAmount: taxEstimate } = calcLineTaxes({
+    roomCharge,
+    extraBedTotal,
+    purchaseAmounts,
+  });
   const totalWithTaxEstimate = grandTotal + taxEstimate;
   const payments = booking.payments ?? [];
   const amountPaid = calcAmountPaid(payments);
@@ -93,17 +101,29 @@ export default function BookingDetail({ currentUser, bookingId, openAddPurchase,
   };
   const sc = STATUS_STYLE[booking.status] || STATUS_STYLE['confirmed'];
 
-  const sharePath = booking.shareToken || bookingId;
-  const billUrl = typeof window !== 'undefined'
-    ? `${window.location.origin}/bill/${sharePath}`
-    : `/bill/${sharePath}`;
+  const shareToken = booking.shareToken;
+  const billUrl = shareToken ? getBillShareUrl(shareToken) : "";
 
-  const guestPhone = customer?.phone?.replace(/[^0-9]/g, '') ?? '';
-  const whatsappUrl = guestPhone
-    ? `https://wa.me/${guestPhone}?text=${encodeURIComponent(
-        `Hi ${customer?.name ?? 'guest'}, your stay at ${house?.name} (Room ${room?.roomNumber}) bill is ready. Total: ${formatCurrency(totalWithTaxEstimate)}${amountPaid > 0 ? `. Paid: ${formatCurrency(amountPaid)}. Balance: ${formatCurrency(balanceDue)}` : ''}. View bill: ${billUrl}`
-      )}`
-    : null;
+  const waPhone = toWhatsAppPhone(customer?.phone ?? "");
+  const whatsappChatUrl = waPhone ? `https://wa.me/${waPhone}` : null;
+  const whatsappBillUrl =
+    waPhone && shareToken && billUrl
+      ? `https://wa.me/${waPhone}?text=${encodeURIComponent(
+          [
+            `Hi ${customer?.name ?? "guest"},`,
+            "",
+            `Your stay bill at ${house?.name ?? "Havens"} (Room ${room?.roomNumber ?? ""}) is ready.`,
+            `Total: ${formatCurrency(totalWithTaxEstimate)}`,
+            amountPaid > 0 ? `Paid: ${formatCurrency(amountPaid)}` : null,
+            amountPaid > 0 ? `Balance: ${formatCurrency(balanceDue)}` : null,
+            "",
+            "View your bill here:",
+            billUrl,
+          ]
+            .filter(Boolean)
+            .join("\n")
+        )}`
+      : null;
 
   const syncBillPayments = async (
     nextPayments: BookingPayment[],
@@ -248,7 +268,14 @@ export default function BookingDetail({ currentUser, bookingId, openAddPurchase,
   const handleCheckout = async () => {
     setCheckingOut(true);
     try {
-      const taxAmount = calcTaxAmount(grandTotal);
+      const purchaseLines = purchases.map((p, i) => ({
+        label: getCatalogueItem(p.itemId)?.name ?? p.itemId,
+        quantity: p.quantity,
+        unitPrice: p.price,
+        amount: p.price * p.quantity,
+        taxAmount: purchaseTaxes[i] ?? calcTaxAmount(p.price * p.quantity),
+      }));
+      const taxAmount = taxEstimate;
       const totalWithTax = grandTotal + taxAmount;
       const paidSum = calcAmountPaid(payments);
       const bal = calcBalanceDue(totalWithTax, paidSum);
@@ -267,17 +294,14 @@ export default function BookingDetail({ currentUser, bookingId, openAddPurchase,
         nights,
         rent: booking.rent,
         roomTotal,
+        roomTax,
         discount,
         guestCount: booking.guestCount,
         extraBedsUsed,
         extraBedRate,
         extraBedTotal,
-        purchaseLines: purchases.map(p => ({
-          label: getCatalogueItem(p.itemId)?.name ?? p.itemId,
-          quantity: p.quantity,
-          unitPrice: p.price,
-          amount: p.price * p.quantity,
-        })),
+        extraBedTax,
+        purchaseLines,
         purchaseTotal,
         subtotal: grandTotal,
         taxAmount,
@@ -391,10 +415,20 @@ export default function BookingDetail({ currentUser, bookingId, openAddPurchase,
             <button
               onClick={handleCheckIn}
               disabled={saving}
-              className="px-4 py-2 rounded-md text-sm font-semibold"
+              className="px-4 py-2 rounded-md text-sm font-semibold disabled:opacity-60"
               style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
             >
-              Check In
+              {saving ? 'Checking in…' : 'Check In'}
+            </button>
+          )}
+          {booking.status === 'checked-in' && (
+            <button
+              type="button"
+              disabled
+              className="px-4 py-2 rounded-md text-sm font-semibold cursor-default"
+              style={{ background: 'var(--status-vacant-bg)', color: 'var(--status-vacant)' }}
+            >
+              Checked In
             </button>
           )}
           {canEditCharges && (
@@ -642,8 +676,8 @@ export default function BookingDetail({ currentUser, bookingId, openAddPurchase,
           {customer?.phone && (
             <a href={`tel:${customer.phone}`} className="px-3 py-1.5 rounded text-xs font-medium" style={{ background: 'var(--secondary)', color: 'var(--secondary-foreground)' }}>Call</a>
           )}
-          {whatsappUrl && (
-            <a href={whatsappUrl} target="_blank" rel="noreferrer" className="px-3 py-1.5 rounded text-xs font-medium" style={{ background: '#25D366', color: 'white' }}>WhatsApp</a>
+          {whatsappChatUrl && (
+            <a href={whatsappChatUrl} target="_blank" rel="noreferrer" className="px-3 py-1.5 rounded text-xs font-medium" style={{ background: '#25D366', color: 'white' }}>WhatsApp</a>
           )}
           <button onClick={() => onNavigate('customer-detail', { customerId: booking.customerId })} className="px-3 py-1.5 rounded text-xs font-medium" style={{ background: 'var(--secondary)', color: 'var(--secondary-foreground)' }}>
             Full Profile →
@@ -858,11 +892,47 @@ export default function BookingDetail({ currentUser, bookingId, openAddPurchase,
 
         <div className="px-5 py-4 space-y-1.5" style={{ background: 'var(--secondary)' }}>
           <div className="flex items-center justify-between">
+            <div className="text-sm" style={{ color: 'var(--muted-foreground)' }}>Room</div>
+            <div className="text-sm" style={{ fontFamily: 'DM Mono, monospace', color: 'var(--foreground)' }}>{formatCurrency(roomCharge)}</div>
+          </div>
+          <div className="flex items-center justify-between pl-2">
+            <div className="text-xs" style={{ color: 'var(--muted-foreground)' }}>GST 12% (room)</div>
+            <div className="text-xs" style={{ fontFamily: 'DM Mono, monospace', color: 'var(--foreground)' }}>{formatCurrency(roomTax)}</div>
+          </div>
+          {extraBedTotal > 0 && (
+            <>
+              <div className="flex items-center justify-between">
+                <div className="text-sm" style={{ color: 'var(--muted-foreground)' }}>Extra guests</div>
+                <div className="text-sm" style={{ fontFamily: 'DM Mono, monospace', color: 'var(--foreground)' }}>{formatCurrency(extraBedTotal)}</div>
+              </div>
+              <div className="flex items-center justify-between pl-2">
+                <div className="text-xs" style={{ color: 'var(--muted-foreground)' }}>GST 12% (extra guests)</div>
+                <div className="text-xs" style={{ fontFamily: 'DM Mono, monospace', color: 'var(--foreground)' }}>{formatCurrency(extraBedTax)}</div>
+              </div>
+            </>
+          )}
+          {purchases.map((p, i) => {
+            const amount = p.price * p.quantity;
+            const label = getCatalogueItem(p.itemId)?.name ?? p.itemId;
+            return (
+              <div key={p.purchaseId}>
+                <div className="flex items-center justify-between">
+                  <div className="text-sm" style={{ color: 'var(--muted-foreground)' }}>{label} × {p.quantity}</div>
+                  <div className="text-sm" style={{ fontFamily: 'DM Mono, monospace', color: 'var(--foreground)' }}>{formatCurrency(amount)}</div>
+                </div>
+                <div className="flex items-center justify-between pl-2">
+                  <div className="text-xs" style={{ color: 'var(--muted-foreground)' }}>GST 12%</div>
+                  <div className="text-xs" style={{ fontFamily: 'DM Mono, monospace', color: 'var(--foreground)' }}>{formatCurrency(purchaseTaxes[i] ?? 0)}</div>
+                </div>
+              </div>
+            );
+          })}
+          <div className="flex items-center justify-between pt-1" style={{ borderTop: '1px solid var(--border)' }}>
             <div className="text-sm" style={{ color: 'var(--muted-foreground)' }}>Charges (ex. GST)</div>
             <div className="text-sm" style={{ fontFamily: 'DM Mono, monospace', color: 'var(--foreground)' }}>{formatCurrency(grandTotal)}</div>
           </div>
           <div className="flex items-center justify-between">
-            <div className="text-sm" style={{ color: 'var(--muted-foreground)' }}>Est. GST (12%)</div>
+            <div className="text-sm" style={{ color: 'var(--muted-foreground)' }}>Total GST</div>
             <div className="text-sm" style={{ fontFamily: 'DM Mono, monospace', color: 'var(--foreground)' }}>{formatCurrency(taxEstimate)}</div>
           </div>
           <div className="flex items-center justify-between">
@@ -914,19 +984,36 @@ export default function BookingDetail({ currentUser, bookingId, openAddPurchase,
             >
               View Bill
             </button>
-            {whatsappUrl ? (
-              <a href={whatsappUrl} target="_blank" rel="noreferrer" className="px-3 py-2 rounded text-xs font-medium" style={{ background: '#25D366', color: 'white' }}>
-                WhatsApp
+            {billUrl && (
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(billUrl);
+                    toast.success('Bill link copied.');
+                  } catch {
+                    toast.error('Could not copy link.');
+                  }
+                }}
+                className="px-3 py-2 rounded text-xs font-medium"
+                style={{ background: 'var(--secondary)', color: 'var(--secondary-foreground)' }}
+              >
+                Copy link
+              </button>
+            )}
+            {whatsappBillUrl ? (
+              <a href={whatsappBillUrl} target="_blank" rel="noreferrer" className="px-3 py-2 rounded text-xs font-medium" style={{ background: '#25D366', color: 'white' }}>
+                WhatsApp bill
               </a>
             ) : (
               <button
                 type="button"
                 disabled
-                title="Guest phone number missing"
+                title={!shareToken ? 'Complete Vacate & Bill first' : 'Guest phone number missing'}
                 className="px-3 py-2 rounded text-xs font-medium opacity-50 cursor-not-allowed"
                 style={{ background: '#25D366', color: 'white' }}
               >
-                WhatsApp
+                WhatsApp bill
               </button>
             )}
           </div>

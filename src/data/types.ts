@@ -127,6 +127,8 @@ export interface BillLineItem {
   quantity: number;
   unitPrice: number;
   amount: number;
+  /** GST on this line (12%) */
+  taxAmount?: number;
 }
 
 export interface BillSnapshot {
@@ -143,11 +145,15 @@ export interface BillSnapshot {
   nights: number;
   rent: number;
   roomTotal: number;
+  /** GST on room charge after discount */
+  roomTax?: number;
   discount?: number;
   guestCount?: number;
   extraBedsUsed?: number;
   extraBedRate?: number;
   extraBedTotal?: number;
+  /** GST on extra beds / guests */
+  extraBedTax?: number;
   purchaseLines: BillLineItem[];
   purchaseTotal: number;
   subtotal: number;
@@ -208,6 +214,20 @@ export function calcAmountPaid(payments: BookingPayment[] | undefined): number {
 
 export function calcTaxAmount(subtotal: number): number {
   return Math.round(Math.max(0, subtotal) * 0.12);
+}
+
+/** Per-line GST so totals match the sum of element taxes (avoids rounding drift). */
+export function calcLineTaxes(parts: {
+  roomCharge: number;
+  extraBedTotal?: number;
+  purchaseAmounts?: number[];
+}): { roomTax: number; extraBedTax: number; purchaseTaxes: number[]; taxAmount: number } {
+  const roomTax = calcTaxAmount(parts.roomCharge);
+  const extraBedTax = calcTaxAmount(parts.extraBedTotal ?? 0);
+  const purchaseTaxes = (parts.purchaseAmounts ?? []).map((a) => calcTaxAmount(a));
+  const taxAmount =
+    roomTax + extraBedTax + purchaseTaxes.reduce((s, t) => s + t, 0);
+  return { roomTax, extraBedTax, purchaseTaxes, taxAmount };
 }
 
 export function calcBalanceDue(totalWithTax: number, amountPaid: number): number {

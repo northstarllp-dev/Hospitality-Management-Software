@@ -7,6 +7,14 @@
         { "fieldPath": "houseId", "order": "ASCENDING" },
         { "fieldPath": "roomId", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "bookings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "houseId", "order": "ASCENDING" },
+        { "fieldPath": "roomId", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

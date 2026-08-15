@@ -30,8 +30,15 @@ export function deriveRoomStatus(
   return "vacant";
 }
 
-export async function fetchRoomBookings(db: Firestore, roomId: string): Promise<Booking[]> {
-  const snap = await getDocs(query(collection(db, "bookings"), where("roomId", "==", roomId)));
+export async function fetchRoomBookings(
+  db: Firestore,
+  roomId: string,
+  houseId?: string
+): Promise<Booking[]> {
+  const constraints = houseId
+    ? [where("houseId", "==", houseId), where("roomId", "==", roomId)]
+    : [where("roomId", "==", roomId)];
+  const snap = await getDocs(query(collection(db, "bookings"), ...constraints));
   return snap.docs.map((d) => d.data() as Booking);
 }
 
@@ -41,7 +48,7 @@ export async function syncRoomOccupancy(
   roomId: string,
   currentStatus: RoomStatus
 ) {
-  const bookings = await fetchRoomBookings(db, roomId);
+  const bookings = await fetchRoomBookings(db, roomId, houseId);
   const next = deriveRoomStatus(currentStatus, bookings);
   const batch = writeBatch(db);
   batch.update(doc(db, "houses", houseId, "rooms", roomId), { currentStatus: next });
@@ -69,7 +76,7 @@ export async function createBookingAtomic(db: Firestore, input: CreateBookingInp
     throw new Error("Check-out must be after check-in.");
   }
 
-  const existing = await fetchRoomBookings(db, input.roomId);
+  const existing = await fetchRoomBookings(db, input.roomId, input.houseId);
   if (roomHasConflict(input.roomId, input.checkIn, input.checkOut, existing)) {
     throw new Error("This room is already booked for those dates.");
   }
@@ -177,7 +184,7 @@ export async function checkoutBookingAtomic(
   });
   await batch.commit();
 
-  const remaining = (await fetchRoomBookings(db, booking.roomId)).map((b) =>
+  const remaining = (await fetchRoomBookings(db, booking.roomId, booking.houseId)).map((b) =>
     b.bookingId === booking.bookingId ? { ...b, status: "checked-out" as const } : b
   );
   const next = deriveRoomStatus(roomCurrentStatus, remaining);
@@ -210,7 +217,7 @@ export async function updateBookingDatesAtomic(
     throw new Error("Check-out must be after check-in.");
   }
 
-  const existing = await fetchRoomBookings(db, booking.roomId);
+  const existing = await fetchRoomBookings(db, booking.roomId, booking.houseId);
   if (roomHasConflict(booking.roomId, input.checkIn, input.checkOut, existing, booking.bookingId)) {
     throw new Error("The room is unavailable for the selected dates.");
   }

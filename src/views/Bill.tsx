@@ -6,28 +6,30 @@ import { formatCurrency, formatDate } from "../data/types";
 import { useDocument } from "../lib/firebase/hooks";
 import type { Page } from "../components/Layout";
 import QRCode from "qrcode";
+import { getBillShareUrl } from "@/lib/share";
 
 interface Props {
   /** Unguessable public share token (preferred) or legacy booking id */
   token: string;
+  /** When true, also try staff `bills/{token}` (logged-in staff only). */
+  allowStaffFallback?: boolean;
   onNavigate?: (page: Page, params?: Record<string, string>) => void;
 }
 
-export default function Bill({ token, onNavigate }: Props) {
-  const { data: publicBill, loading: publicLoading } = useDocument<BillSnapshot & { token?: string; bookingId?: string }>(
-    "publicBills",
-    token
+export default function Bill({ token, allowStaffFallback = false, onNavigate }: Props) {
+  const { data: publicBill, loading: publicLoading, error: publicError } = useDocument<
+    BillSnapshot & { token?: string; bookingId?: string }
+  >("publicBills", token);
+  const { data: staffBill, loading: staffLoading } = useDocument<BillSnapshot>(
+    "bills",
+    allowStaffFallback && !publicBill ? token : null
   );
-  const { data: staffBill, loading: staffLoading } = useDocument<BillSnapshot>("bills", token);
   const bill = publicBill ?? staffBill;
-  const loading = publicLoading || (staffLoading && !publicBill);
+  const loading = publicLoading || (allowStaffFallback && staffLoading && !publicBill);
   const [qrDataUrl, setQrDataUrl] = useState<string>("");
 
   const bookingId = (publicBill?.bookingId || staffBill?.bookingId || token) as string;
-  const billUrl =
-    typeof window !== "undefined"
-      ? `${window.location.origin}/bill/${publicBill?.token || token}`
-      : `/bill/${token}`;
+  const billUrl = getBillShareUrl(publicBill?.token || token);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,8 +52,13 @@ export default function Bill({ token, onNavigate }: Props) {
   }
   if (!bill) {
     return (
-      <div className="p-8 text-center" style={{ color: "var(--muted-foreground)" }}>
-        Bill not found. Use the secure link from checkout, or complete checkout to generate a guest bill.
+      <div className="p-8 text-center space-y-2" style={{ color: "var(--muted-foreground)" }}>
+        <p>Bill not found.</p>
+        <p className="text-xs">
+          {publicError
+            ? "Could not load this bill link. Ask the property to resend it after checkout."
+            : "Use the secure link from checkout, or complete Vacate & Bill to generate a guest bill."}
+        </p>
       </div>
     );
   }
@@ -121,28 +128,53 @@ export default function Bill({ token, onNavigate }: Props) {
                 <span style={{ fontFamily: "DM Mono, monospace" }}>−{formatCurrency(bill.discount ?? 0)}</span>
               </div>
             )}
+            <div className="flex justify-between pl-2 text-xs">
+              <span style={{ color: "var(--muted-foreground)" }}>GST 12% (room)</span>
+              <span style={{ fontFamily: "DM Mono, monospace" }}>
+                {formatCurrency(
+                  bill.roomTax ??
+                    Math.round(Math.max(0, bill.roomTotal - (bill.discount ?? 0)) * 0.12)
+                )}
+              </span>
+            </div>
             {(bill.extraBedTotal ?? 0) > 0 && (
-              <div className="flex justify-between">
-                <span style={{ color: "var(--muted-foreground)" }}>
-                  Extra beds ({bill.extraBedsUsed} × {formatCurrency(bill.extraBedRate ?? 0)} × {bill.nights})
-                </span>
-                <span style={{ fontFamily: "DM Mono, monospace" }}>{formatCurrency(bill.extraBedTotal ?? 0)}</span>
-              </div>
+              <>
+                <div className="flex justify-between">
+                  <span style={{ color: "var(--muted-foreground)" }}>
+                    Extra beds ({bill.extraBedsUsed} × {formatCurrency(bill.extraBedRate ?? 0)} × {bill.nights})
+                  </span>
+                  <span style={{ fontFamily: "DM Mono, monospace" }}>{formatCurrency(bill.extraBedTotal ?? 0)}</span>
+                </div>
+                <div className="flex justify-between pl-2 text-xs">
+                  <span style={{ color: "var(--muted-foreground)" }}>GST 12% (extra guests)</span>
+                  <span style={{ fontFamily: "DM Mono, monospace" }}>
+                    {formatCurrency(bill.extraBedTax ?? Math.round((bill.extraBedTotal ?? 0) * 0.12))}
+                  </span>
+                </div>
+              </>
             )}
             {bill.purchaseLines.map((line, i) => (
-              <div key={i} className="flex justify-between">
-                <span style={{ color: "var(--muted-foreground)" }}>
-                  {line.label} × {line.quantity}
-                </span>
-                <span style={{ fontFamily: "DM Mono, monospace" }}>{formatCurrency(line.amount)}</span>
+              <div key={i} className="space-y-0.5">
+                <div className="flex justify-between">
+                  <span style={{ color: "var(--muted-foreground)" }}>
+                    {line.label} × {line.quantity}
+                  </span>
+                  <span style={{ fontFamily: "DM Mono, monospace" }}>{formatCurrency(line.amount)}</span>
+                </div>
+                <div className="flex justify-between pl-2 text-xs">
+                  <span style={{ color: "var(--muted-foreground)" }}>GST 12%</span>
+                  <span style={{ fontFamily: "DM Mono, monospace" }}>
+                    {formatCurrency(line.taxAmount ?? Math.round(line.amount * 0.12))}
+                  </span>
+                </div>
               </div>
             ))}
             <div className="flex justify-between pt-2" style={{ borderTop: "1px solid var(--border)" }}>
-              <span style={{ color: "var(--muted-foreground)" }}>Subtotal</span>
+              <span style={{ color: "var(--muted-foreground)" }}>Subtotal (ex. GST)</span>
               <span style={{ fontFamily: "DM Mono, monospace" }}>{formatCurrency(bill.subtotal)}</span>
             </div>
             <div className="flex justify-between">
-              <span style={{ color: "var(--muted-foreground)" }}>GST (12%)</span>
+              <span style={{ color: "var(--muted-foreground)" }}>Total GST</span>
               <span style={{ fontFamily: "DM Mono, monospace" }}>{formatCurrency(bill.taxAmount)}</span>
             </div>
             <div className="flex justify-between text-base font-semibold pt-1">
