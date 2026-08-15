@@ -1,0 +1,81 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Work+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+@import 'tailwindcss';
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 4px);
+}
+
+:root {
+  --background: #F7F3EE;
+  --foreground: #1C1612;
+  --card: #FDFAF7;
+  --card-foreground: #1C1612;
+  --primary: #2A5244;
+  --primary-foreground: #F7F3EE;
+  --secondary: #EDE8E1;
+  --secondary-foreground: #3D3228;
+  --muted: #E8E1D8;
+  --muted-foreground: #7A6B5D;
+  --accent: #B87333;
+  --accent-foreground: #FDFAF7;
+  --border: #D9D0C5;
+  --ring: #2A5244;
+  --radius: 6px;
+
+  --status-vacant: #2A7A4B;
+  --status-vacant-bg: #E8F5ED;
+  --status-occupied: #C0392B;
+  --status-occupied-bg: #FDECEA;
+  --status-maintenance: #9B7B2A;
+  --status-maintenance-bg: #FDF6E3;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Work Sans', sans-serif;
+  background-color: var(--background);
+  color: var(--foreground);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 {
+  font-family: 'DM Serif Display', serif;
+}
+
+.font-mono-data {
+  font-family: 'DM Mono', monospace;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted-foreground); }
+
+/* Transitions */
+* { transition-property: background-color, border-color, color, opacity; transition-duration: 150ms; }

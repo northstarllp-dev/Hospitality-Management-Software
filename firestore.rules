@@ -1,0 +1,264 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function userPath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    function signedInUser() {
+      return get(userPath()).data;
+    }
+
+    function hasStaffAccess() {
+      return isAuthenticated()
+        && exists(userPath())
+        && signedInUser().role in ['staff', 'admin', 'superadmin'];
+    }
+
+    function isAdmin() {
+      return hasStaffAccess() && signedInUser().role in ['admin', 'superadmin'];
+    }
+
+    function isSuperAdmin() {
+      return hasStaffAccess() && signedInUser().role == 'superadmin';
+    }
+
+    function canAccessHouse(houseId) {
+      return isAdmin()
+        || (hasStaffAccess()
+          && signedInUser().assignedHouse != null
+          && signedInUser().assignedHouse == houseId);
+    }
+
+    function isValidEmail(email) {
+      return email is string
+        && email.matches('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$');
+    }
+
+    function isValidDate(d) {
+      return d is string && d.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasOnly(['uid', 'name', 'email', 'role', 'assignedHouse'])
+        && data.uid is string
+        && data.uid.size() > 0
+        && data.name is string
+        && data.name.size() > 0
+        && data.name.size() < 120
+        && isValidEmail(data.email)
+        && data.role in ['superadmin', 'admin', 'staff']
+        && (!('assignedHouse' in data)
+          || data.assignedHouse == null
+          || data.assignedHouse is string);
+    }
+
+    function isValidHouse(data) {
+      return data.keys().hasAll(['houseId', 'name', 'address', 'description', 'coverImage'])
+        && data.houseId is string
+        && data.name is string
+        && data.address is string
+        && data.description is string
+        && data.coverImage is string
+        && (!('roomCount' in data) || data.roomCount is number);
+    }
+
+    function isValidRoom(data) {
+      return data.keys().hasAll([
+          'roomId', 'houseId', 'roomNumber', 'type', 'rent',
+          'maxOccupancy', 'currentStatus', 'floor'
+        ])
+        && data.roomId is string
+        && data.houseId is string
+        && data.roomNumber is string
+        && data.type in ['Single', 'Double', 'Suite', 'Deluxe']
+        && data.rent is number
+        && data.rent >= 0
+        && data.maxOccupancy is number
+        && data.maxOccupancy > 0
+        && data.currentStatus in ['vacant', 'occupied', 'maintenance']
+        && data.floor is number
+        && (!('extraBeds' in data) || (data.extraBeds is number && data.extraBeds >= 0))
+        && (!('costPerBed' in data) || (data.costPerBed is number && data.costPerBed >= 0));
+    }
+
+    function isValidCustomer(data) {
+      return data.keys().hasAll(['customerId', 'name', 'phone', 'email', 'idProof', 'bookingHistory'])
+        && data.customerId is string
+        && data.name is string
+        && data.name.size() > 0
+        && data.phone is string
+        && data.email is string
+        && data.idProof is string
+        && data.bookingHistory is list;
+    }
+
+    function isValidCatalogueItem(data) {
+      return data.keys().hasAll(['itemId', 'houseId', 'name', 'price', 'category'])
+        && data.itemId is string
+        && data.houseId is string
+        && data.name is string
+        && data.price is number
+        && data.price >= 0
+        && data.category in ['Beverages', 'Food', 'Amenities', 'Laundry', 'Other'];
+    }
+
+    function isValidBooking(data) {
+      return data.keys().hasAll([
+          'bookingId', 'houseId', 'roomId', 'customerId',
+          'checkIn', 'checkOut', 'status', 'rent'
+        ])
+        && data.bookingId is string
+        && data.houseId is string
+        && data.roomId is string
+        && data.customerId is string
+        && isValidDate(data.checkIn)
+        && isValidDate(data.checkOut)
+        && data.checkOut > data.checkIn
+        && data.status in ['confirmed', 'checked-in', 'checked-out', 'cancelled']
+        && data.rent is number
+        && data.rent >= 0
+        && (!('notes' in data) || data.notes is string)
+        && (!('guestCount' in data) || (data.guestCount is number && data.guestCount > 0))
+        && (!('extraBedsUsed' in data) || (data.extraBedsUsed is number && data.extraBedsUsed >= 0))
+        && (!('extraBedRate' in data) || (data.extraBedRate is number && data.extraBedRate >= 0))
+        && (!('discount' in data) || (data.discount is number && data.discount >= 0))
+        && (!('paid' in data) || data.paid is bool)
+        && (!('paidAt' in data) || data.paidAt == null || data.paidAt is string)
+        && (!('shareToken' in data) || data.shareToken is string)
+        && !('purchases' in data);
+    }
+
+    function isValidPurchase(data) {
+      return data.keys().hasAll([
+          'purchaseId', 'bookingId', 'roomId', 'itemId',
+          'quantity', 'price', 'addedBy', 'timestamp'
+        ])
+        && data.purchaseId is string
+        && data.bookingId is string
+        && data.roomId is string
+        && data.itemId is string
+        && data.quantity is number
+        && data.quantity > 0
+        && data.price is number
+        && data.addedBy is string
+        && data.timestamp is string;
+    }
+
+    function isValidBill(data) {
+      return data.keys().hasAll([
+          'bookingId', 'houseId', 'houseName', 'houseAddress',
+          'roomNumber', 'roomType', 'customerName', 'customerPhone',
+          'checkIn', 'checkOut', 'nights', 'rent', 'roomTotal',
+          'purchaseLines', 'purchaseTotal', 'subtotal', 'taxAmount',
+          'totalWithTax', 'createdAt'
+        ])
+        && data.bookingId is string
+        && data.purchaseLines is list
+        && data.totalWithTax is number
+        && (!('guestCount' in data) || data.guestCount is number)
+        && (!('extraBedsUsed' in data) || data.extraBedsUsed is number)
+        && (!('extraBedRate' in data) || data.extraBedRate is number)
+        && (!('extraBedTotal' in data) || data.extraBedTotal is number)
+        && (!('discount' in data) || data.discount is number)
+        && (!('paid' in data) || data.paid is bool)
+        && (!('paidAt' in data) || data.paidAt == null || data.paidAt is string)
+        && (!('shareToken' in data) || data.shareToken is string);
+    }
+
+    match /users/{userId} {
+      allow read: if hasStaffAccess();
+      allow create, update: if isSuperAdmin()
+        && isValidUser(request.resource.data)
+        && request.resource.data.uid == userId
+        && (
+          request.resource.data.role in ['admin', 'staff']
+          || (userId == request.auth.uid && request.resource.data.role == 'superadmin')
+        );
+      allow delete: if isSuperAdmin()
+        && resource.data.role != 'superadmin'
+        && userId != request.auth.uid;
+    }
+
+    match /houses/{houseId} {
+      allow read: if hasStaffAccess();
+      allow create, update: if isAdmin() && isValidHouse(request.resource.data);
+      allow delete: if isSuperAdmin();
+
+      match /rooms/{roomId} {
+        allow read: if hasStaffAccess();
+        allow create: if isAdmin() && isValidRoom(request.resource.data)
+          && request.resource.data.houseId == houseId
+          && request.resource.data.roomId == roomId;
+        allow update: if isValidRoom(request.resource.data)
+          && request.resource.data.houseId == houseId
+          && request.resource.data.roomId == roomId
+          && (
+            isAdmin()
+            || (
+              canAccessHouse(houseId)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentStatus'])
+            )
+          );
+        allow delete: if isAdmin();
+      }
+    }
+
+    match /{path=**}/rooms/{roomId} {
+      allow read: if hasStaffAccess();
+    }
+
+    match /customers/{customerId} {
+      allow read: if hasStaffAccess();
+      allow create, update: if hasStaffAccess() && isValidCustomer(request.resource.data)
+        && request.resource.data.customerId == customerId;
+      allow delete: if isAdmin();
+    }
+
+    match /catalogue/{itemId} {
+      allow read: if hasStaffAccess();
+      allow create, update: if hasStaffAccess() && isValidCatalogueItem(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /bookings/{bookingId} {
+      allow read: if hasStaffAccess();
+      allow create: if hasStaffAccess()
+        && isValidBooking(request.resource.data)
+        && request.resource.data.bookingId == bookingId
+        && canAccessHouse(request.resource.data.houseId);
+      allow update: if hasStaffAccess()
+        && isValidBooking(request.resource.data)
+        && canAccessHouse(resource.data.houseId)
+        && canAccessHouse(request.resource.data.houseId);
+      allow delete: if isAdmin();
+    }
+
+    match /purchases/{purchaseId} {
+      allow read: if hasStaffAccess();
+      allow create, update: if hasStaffAccess() && isValidPurchase(request.resource.data);
+      allow delete: if hasStaffAccess();
+    }
+
+    match /bills/{bookingId} {
+      allow read: if hasStaffAccess();
+      allow create, update: if hasStaffAccess() && isValidBill(request.resource.data)
+        && request.resource.data.bookingId == bookingId;
+      allow delete: if isSuperAdmin();
+    }
+
+    match /publicBills/{token} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if hasStaffAccess()
+        && request.resource.data.token == token
+        && request.resource.data.bookingId is string;
+      allow delete: if isSuperAdmin();
+    }
+  }
+}
